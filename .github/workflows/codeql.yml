@@ -29,7 +29,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
       with:
-        path: ${{ runner.workspace }}/OQS-bind
+        path: ${{ runner.workspace }}/statefulsigs-bind
 
     - name: Install build dependencies
       uses: awalsh128/cache-apt-pkgs-action@latest
