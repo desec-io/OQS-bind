@@ -502,7 +502,6 @@ key_collision(dst_key_t *dstkey, dns_name_t *name, const char *dir,
 	if (result == ISC_R_NOTFOUND) {
 		return (false);
 	}
-
 	while (!ISC_LIST_EMPTY(matchkeys) && !conflict) {
 		key = ISC_LIST_HEAD(matchkeys);
 		if (dst_key_alg(key->key) != alg) {

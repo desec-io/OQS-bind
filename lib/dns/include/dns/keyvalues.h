@@ -71,6 +71,8 @@
 #define DNS_KEYALG_FALCON512	     17
 #define DNS_KEYALG_DILITHIUM2	     18
 #define DNS_KEYALG_SPHINCSSHA256128S 19
+#define DNS_KEYALG_XMSS		     20
+#define DNS_KEYALG_XMSSMT	     21
 #define DNS_KEYALG_INDIRECT	     252
 #define DNS_KEYALG_PRIVATEDNS	     253
 #define DNS_KEYALG_PRIVATEOID	     254 /*%< Key begins with OID giving alg */

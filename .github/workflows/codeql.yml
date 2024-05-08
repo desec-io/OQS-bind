@@ -37,23 +37,22 @@ jobs:
         packages: liburcu-dev libuv1-dev libssl-dev libnghttp2-dev libxml2-dev liblmdb-dev libjson-c-dev pkg-config autoconf automake autotools-dev libtool-bin libjemalloc-dev libedit-dev libcap-dev libidn2-dev libkrb5-dev libmaxminddb-dev zlib1g-dev python3-ply astyle cmake gcc ninja-build python3-pytest python3-pytest-xdist unzip xsltproc doxygen graphviz python3-yaml valgrind
 
         version: 1.0
-    - name: Install liboqs 0.9.0
+    - name: Install Openssl3.2.0
       run: |
-        git clone --branch 0.9.0 https://github.com/open-quantum-safe/liboqs.git
-        cd liboqs
-        mkdir build
-        cd build
-        cmake -GNinja .. -DCMAKE_INSTALL_PREFIX=$liboqs_DIR && ninja && ninja run_tests && ninja install
-      env:
-        liboqs_DIR: ${{ runner.workspace }}/local_deps/oqs
-    - name: Install Openssl3.2.0-beta1
-      run: |
-        git clone --branch openssl-3.2.0-beta1 https://github.com/openssl/openssl.git
+        git clone --branch openssl-3.2.0 https://github.com/openssl/openssl.git
         cd openssl
         ./Configure --prefix=$OPENSSL_ROOT_DIR --openssldir=$OPENSSL_ROOT_DIR no-docs -lm && make && make $NPROC install LIBDIR=lib
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
-
+    - name: Install liboqs from stateful-sigs branch
+      run: |
+        git clone --branch stateful-sigs https://github.com/open-quantum-safe/liboqs.git
+        cd liboqs
+        mkdir build
+        cd build
+        cmake -GNinja .. -DCMAKE_INSTALL_PREFIX=$liboqs_DIR -DOQS_EXPERIMENTAL_ENABLE_SIG_STFL_KEY_SIG_GEN=ON -D-DOQS_ENABLE_SIG_STFL_XMSS=ON && ninja && ninja run_tests && ninja install
+      env:
+        liboqs_DIR: ${{ runner.workspace }}/local_deps/oqs
     - name: Install OQS-provider
       run: |
         git clone https://github.com/open-quantum-safe/oqs-provider.git
@@ -68,22 +67,11 @@ jobs:
       uses: github/codeql-action/init@v2
       with:
         languages: ${{ matrix.language }}
-
-    #- name: Autobuild
-      #uses: github/codeql-action/autobuild@v2
-      #env:
-      #  OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
-
-    # ℹ️ Command-line programs to run using the OS shell.
-    # 📚 See https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#jobsjob_idstepsrun
-
-    #   If the Autobuild fails above, remove it and uncomment the following three lines.
-    #   modify them (or add more) to build your code if your project, please refer to the EXAMPLE below for guidance.
     - name: Build bind9
       run: |
         cd ${{ runner.workspace }}/OQS-bind
         autoreconf -fi
-        ./configure --with-openssl=$OPENSSL_ROOT_DIR
+        ./configure LIBS="-loqs" --with-openssl=$OPENSSL_ROOT_DIR
         make -j $NPROC
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl

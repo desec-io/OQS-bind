@@ -73,7 +73,7 @@ options {\n\
 	max-rsa-exponent-size 0; /* no limit */\n\
 	max-udp-size 1232;\n\
 	memstatistics-file \"named.memstats\";\n\
-	nocookie-udp-size 8192;\n/*OQS updated from 4096*/\
+	nocookie-udp-size 65355;\n/*OQS updated from 4096*/\
 	notify-rate 20;\n\
 	nta-lifetime 3600;\n\
 	nta-recheck 300;\n\

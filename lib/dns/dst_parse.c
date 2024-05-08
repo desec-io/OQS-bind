@@ -111,19 +111,18 @@ static struct parse_map map[] = {
 
 	{ TAG_FALCON512_PRIVATEKEY, "PrivateKey:" },
 	{ TAG_FALCON512_PUBLICKEY, "PublicKey:" },
-	{ TAG_FALCON512_ENGINE, "Engine:" }, // Probably won't use for now
-	{ TAG_FALCON512_LABEL, "Label:" },   // Probably won't use for now
 
 	{ TAG_DILITHIUM2_PRIVATEKEY, "PrivateKey:" },
 	{ TAG_DILITHIUM2_PUBLICKEY, "PublicKey:" },
-	{ TAG_DILITHIUM2_ENGINE, "Engine:" }, // Probably won't use for now
-	{ TAG_DILITHIUM2_LABEL, "Label:" },   // Probably won't use for now
 
 	{ TAG_SPHINCSSHA256128S_PRIVATEKEY, "PrivateKey:" },
 	{ TAG_SPHINCSSHA256128S_PUBLICKEY, "PublicKey:" },
-	{ TAG_SPHINCSSHA256128S_ENGINE, "Engine:" }, // Probably won't use for
-						     // now
-	{ TAG_SPHINCSSHA256128S_LABEL, "Label:" }, // Probably won't use for now
+
+	{ TAG_XMSS_PRIVATEKEY, "PrivateKey:" },
+	{ TAG_XMSS_PUBLICKEY, "PublicKey:" },
+
+	{ TAG_XMSSMT_PRIVATEKEY, "PrivateKey:" },
+	{ TAG_XMSSMT_PUBLICKEY, "PublicKey:" },
 
 	{ 0, NULL }
 };
@@ -344,31 +343,29 @@ check_hmac_sha(const dst_private_t *priv, unsigned int ntags,
 // we only need to use one of the algorithms tags. This is define is
 // to make the code below easier to read.
 
-#define TAG_OQS_LABEL	   TAG_FALCON512_LABEL
-#define TAG_OQS_ENGINE	   TAG_FALCON512_ENGINE
 #define TAG_OQS_PRIVATEKEY TAG_FALCON512_PRIVATEKEY
 #define TAG_OQS_PUBLICKEY  TAG_FALCON512_PUBLICKEY
 
 static int
 check_oqs(const dst_private_t *priv, const unsigned int alg, bool external) {
 	int i, j;
-	bool have[OQS_NTAGS];
+	bool have[OQS_PQC_NTAGS];
 	bool ok;
 	unsigned int mask;
 	if (external) {
 		return ((priv->nelements == 0) ? 0 : -1);
 	}
 
-	for (i = 0; i < OQS_NTAGS; i++) {
+	for (i = 0; i < OQS_PQC_NTAGS; i++) {
 		have[i] = false;
 	}
 	for (j = 0; j < priv->nelements; j++) {
-		for (i = 0; i < OQS_NTAGS; i++) {
+		for (i = 0; i < OQS_PQC_NTAGS; i++) {
 			if (priv->elements[j].tag == TAG(alg, i)) {
 				break;
 			}
 		}
-		if (i == OQS_NTAGS) {
+		if (i == OQS_PQC_NTAGS) {
 			return (-1);
 		}
 		have[i] = true;
@@ -376,12 +373,70 @@ check_oqs(const dst_private_t *priv, const unsigned int alg, bool external) {
 
 	mask = (1ULL << TAG_SHIFT) - 1;
 
-	if (have[TAG_OQS_ENGINE & mask]) {
-		ok = have[TAG_OQS_LABEL & mask];
-	} else {
-		ok = have[TAG_OQS_PRIVATEKEY & mask] &&
-		     have[TAG_OQS_PUBLICKEY & mask];
+	ok = have[TAG_OQS_PRIVATEKEY & mask] &&
+	     have[TAG_OQS_PUBLICKEY & mask];
+	return (ok ? 0 : -1);
+}
+
+static int
+check_xmss(const dst_private_t *priv, const unsigned int alg, bool external) {
+	int i, j;
+	bool have[OQS_STFL_NTAGS];
+	bool ok;
+	unsigned int mask;
+	if (external) {
+		return ((priv->nelements == 0) ? 0 : -1);
 	}
+	for (i = 0; i < OQS_STFL_NTAGS; i++) {
+		have[i] = false;
+	}
+	for (j = 0; j < priv->nelements; j++) {
+		for (i = 0; i < OQS_STFL_NTAGS; i++) {
+			if (priv->elements[j].tag == TAG(alg, i)) {
+				break;
+			}
+		}
+		if (i == OQS_STFL_NTAGS) {
+			return (-1);
+		}
+		have[i] = true;
+	}
+
+	mask = (1ULL << TAG_SHIFT) - 1;
+
+	ok = have[TAG_XMSS_PRIVATEKEY & mask] &&
+	     have[TAG_XMSS_PUBLICKEY & mask];
+	return (ok ? 0 : -1);
+}
+
+static int
+check_xmssmt(const dst_private_t *priv, const unsigned int alg, bool external) {
+	int i, j;
+	bool have[OQS_STFL_NTAGS];
+	bool ok;
+	unsigned int mask;
+	if (external) {
+		return ((priv->nelements == 0) ? 0 : -1);
+	}
+	for (i = 0; i < OQS_STFL_NTAGS; i++) {
+		have[i] = false;
+	}
+	for (j = 0; j < priv->nelements; j++) {
+		for (i = 0; i < OQS_STFL_NTAGS; i++) {
+			if (priv->elements[j].tag == TAG(alg, i)) {
+				break;
+			}
+		}
+		if (i == OQS_STFL_NTAGS) {
+			return (-1);
+		}
+		have[i] = true;
+	}
+
+	mask = (1ULL << TAG_SHIFT) - 1;
+
+	ok = have[TAG_XMSSMT_PRIVATEKEY & mask] &&
+	     have[TAG_XMSSMT_PUBLICKEY & mask];
 	return (ok ? 0 : -1);
 }
 
@@ -417,6 +472,10 @@ check_data(const dst_private_t *priv, const unsigned int alg, bool old,
 	case DST_ALG_DILITHIUM2:
 	case DST_ALG_SPHINCSSHA256128S:
 		return (check_oqs(priv, alg, external));
+	case DST_ALG_XMSS:
+		return (check_xmss(priv, alg, external));
+	case DST_ALG_XMSSMT:
+		return (check_xmssmt(priv, alg, external));
 	default:
 		return (DST_R_UNSUPPORTEDALG);
 	}
@@ -766,6 +825,12 @@ dst__privstruct_writefile(const dst_key_t *key, const dst_private_t *priv,
 		break;
 	case DST_ALG_SPHINCSSHA256128S:
 		fprintf(fp, "(SPHINCS+-SHA256-128S)\n");
+		break;
+	case DST_ALG_XMSS:
+		fprintf(fp, "(XMSS)\n");
+		break;
+	case DST_ALG_XMSSMT:
+		fprintf(fp, "(XMSSMT)\n");
 		break;
 	default:
 		fprintf(fp, "(?)\n");

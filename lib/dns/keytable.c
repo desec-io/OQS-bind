@@ -434,8 +434,8 @@ dns_keytable_deletekey(dns_keytable_t *keytable, const dns_name_t *keyname,
 	isc_result_t result;
 	dns_keynode_t *knode = NULL;
 	dns_rdata_t rdata = DNS_RDATA_INIT;
-	// OQS updated from 4096 to 8192
-	unsigned char data[8192], digest[DNS_DS_BUFFERSIZE];
+	// OQS updated from 4096 to 39000
+	unsigned char data[39000], digest[DNS_DS_BUFFERSIZE];
 	dns_rdata_ds_t ds;
 	isc_buffer_t b;
 	dns_qp_t *qp = NULL;
@@ -589,8 +589,8 @@ dns_keytable_dump(dns_keytable_t *keytable, FILE *fp) {
 	REQUIRE(VALID_KEYTABLE(keytable));
 	REQUIRE(fp != NULL);
 
-	// OQS updated from 4096 to 8192
-	isc_buffer_allocate(keytable->mctx, &text, 8192);
+	// OQS updated from 4096 to 39000
+	isc_buffer_allocate(keytable->mctx, &text, 39000);
 
 	result = dns_keytable_totext(keytable, &text);
 

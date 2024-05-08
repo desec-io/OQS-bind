@@ -55,6 +55,7 @@
 #include <dns/secalg.h>
 
 #include <dst/dst.h>
+#include <dst/xmss.h>
 
 #include <isccfg/cfg.h>
 #include <isccfg/grammar.h>
@@ -64,6 +65,7 @@
 #include <openssl/err.h>
 #include <openssl/provider.h>
 #endif
+#include <oqs/oqs.h>
 
 #include "dnssectool.h"
 
@@ -305,7 +307,6 @@ kasp_from_conf(cfg_obj_t *config, isc_mem_t *mctx, const char *name,
 		dns_kasp_detach(&kasp);
 	}
 }
-
 static void
 keygen(keygen_ctx_t *ctx, isc_mem_t *mctx, int argc, char **argv) {
 	char filename[255];
@@ -354,7 +355,6 @@ keygen(keygen_ctx_t *ctx, isc_mem_t *mctx, int argc, char **argv) {
 				break;
 			}
 		}
-
 		if (ctx->use_nsec3) {
 			switch (ctx->alg) {
 			case DST_ALG_RSASHA1:
@@ -370,6 +370,8 @@ keygen(keygen_ctx_t *ctx, isc_mem_t *mctx, int argc, char **argv) {
 			case DST_ALG_FALCON512:
 			case DST_ALG_DILITHIUM2:
 			case DST_ALG_SPHINCSSHA256128S:
+			case DST_ALG_XMSS:
+			case DST_ALG_XMSSMT:
 				break;
 			default:
 				fatal("algorithm %s is incompatible with NSEC3"
@@ -423,6 +425,8 @@ keygen(keygen_ctx_t *ctx, isc_mem_t *mctx, int argc, char **argv) {
 			case DST_ALG_FALCON512:
 			case DST_ALG_DILITHIUM2:
 			case DST_ALG_SPHINCSSHA256128S:
+			case DST_ALG_XMSS:
+			case DST_ALG_XMSSMT:
 				break;
 			default:
 				fatal("key size not specified (-b option)");
@@ -596,6 +600,32 @@ keygen(keygen_ctx_t *ctx, isc_mem_t *mctx, int argc, char **argv) {
 	case DST_ALG_SPHINCSSHA256128S:
 		ctx->size = 256;
 		break;
+	case DST_ALG_XMSS:
+		if (ctx->algname == NULL) {
+			fatal("XMSS has a NULL algorithm name");
+		}
+		param = xmss_name_to_oid(ctx->algname);
+		if (param == -1) {
+			fatal("XMSS failed to get param based on algname");
+		}
+		ctx->size = xmss_name_to_bits(ctx->algname);
+		if (ctx->size == -1) {
+			fatal("XMSS failed to get bits based on param");
+		}
+		break;
+	case DST_ALG_XMSSMT:
+		if (ctx->algname == NULL) {
+			fatal("XMSSMT has a NULL algorithm name");
+		}
+		param = xmssmt_name_to_oid(ctx->algname);
+		if (param == -1) {
+			fatal("XMSSMT failed to get param based on algname");
+		}
+		ctx->size = xmssmt_name_to_bits(ctx->algname);
+		if (ctx->size == -1) {
+			fatal("XMSSMT failed to get bits based on param");
+		}
+		break;
 	}
 
 	if (ctx->nametype == NULL) {
@@ -690,7 +720,6 @@ keygen(keygen_ctx_t *ctx, isc_mem_t *mctx, int argc, char **argv) {
 			fatal("failed to generate key %s/%s: %s\n", namestr,
 			      algstr, isc_result_totext(ret));
 		}
-
 		dst_key_setbits(key, ctx->dbits);
 		/*
 		 * Set key timing metadata (unless using -C)
@@ -890,7 +919,6 @@ main(int argc, char **argv) {
 	OSSL_PROVIDER *fips = NULL, *base = NULL, *oqs = NULL,
 		      *default_provider = NULL;
 #endif
-
 	keygen_ctx_t ctx = {
 		.options = DST_TYPE_PRIVATE | DST_TYPE_PUBLIC,
 		.prepub = -1,
@@ -1233,8 +1261,18 @@ main(int argc, char **argv) {
 		if (algname == NULL) {
 			fatal("no algorithm specified");
 		}
-		r.base = algname;
-		r.length = strlen(algname);
+		if (strncmp(algname, "XMSSMT", 6) == 0) {
+			ctx.algname = (char *)xmssmt_bindname_to_name(algname);
+			r.base = (char *)"XMSSMT";
+			r.length = strlen("XMSSMT");
+		} else if (strncmp(algname, "XMSS", 4) == 0) {
+			ctx.algname = (char *)xmss_bindname_to_name(algname);
+			r.base = (char *)"XMSS";
+			r.length = strlen("XMSS");
+		} else {
+			r.base = algname;
+			r.length = strlen(algname);
+		}
 		ret = dns_secalg_fromtext(&ctx.alg, &r);
 		if (ret != ISC_R_SUCCESS) {
 			fatal("unknown algorithm %s", algname);
