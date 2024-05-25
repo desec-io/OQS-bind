@@ -401,6 +401,8 @@ main(int argc, char **argv) {
 			case DST_ALG_FALCON512:
 			case DST_ALG_DILITHIUM2:
 			case DST_ALG_SPHINCSSHA256128S:
+			case DST_ALG_XMSS:
+			case DST_ALG_XMSSMT:
 				break;
 			default:
 				fatal("%s is incompatible with NSEC3; "

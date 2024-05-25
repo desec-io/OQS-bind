@@ -54,6 +54,8 @@
 
 #define DST_KEY_INTERNAL
 
+#include <oqs/oqs.h>
+
 #include <isc/result.h>
 
 #include <dns/fixedname.h>
@@ -231,6 +233,8 @@ dst_lib_init(isc_mem_t *mctx, const char *engine) {
 	RETERR(dst__openssloqs_init(&dst_t_func[DST_ALG_FALCON512]));
 	RETERR(dst__openssloqs_init(&dst_t_func[DST_ALG_DILITHIUM2]));
 	RETERR(dst__openssloqs_init(&dst_t_func[DST_ALG_SPHINCSSHA256128S]));
+	RETERR(dst__liboqsstateful_init(&dst_t_func[DST_ALG_XMSS]));
+	RETERR(dst__liboqsstateful_init(&dst_t_func[DST_ALG_XMSSMT]));
 
 	dst_initialized = true;
 	return (ISC_R_SUCCESS);
@@ -682,6 +686,28 @@ dst_key_fromnamedfile(const char *filename, const char *dirname, int type,
 	}
 	RETERR(computeid(key));
 	if (pubkey->key_id != key->key_id) {
+		fprintf(stderr, "pubkey->key_id: %d, key->key_id: %d\n",
+			pubkey->key_id, key->key_id);
+		fflush(stderr);
+		isc_buffer_t *pkb = pubkey->keydata.oqs_stfl_keypair.pub;
+		isc_buffer_t *kb = key->keydata.oqs_stfl_keypair.pub;
+		isc_region_t pkr, kr;
+		isc_buffer_usedregion(pkb, &pkr);
+		isc_buffer_usedregion(kb, &kr);
+		if (memcmp(pkr.base, kr.base, 68) != 0) {
+			fprintf(stderr, "DIFFERENT\n");
+			fprintf(stderr, "\tpkr.length: %d\n", pkr.length);
+			fprintf(stderr, "\tkr.length: %d\n", kr.length);
+			for (int i = 0; i < 68; i++) {
+				if (pkr.base[i] != kr.base[i]) {
+					fprintf(stderr,
+						"\t\ti=%d, pkr[i]=\\x%02x, "
+						"kr[i]=\\x%02x\n",
+						i, pkr.base[i], kr.base[i]);
+				}
+			}
+			fflush(stderr);
+		}
 		RETERR(DST_R_INVALIDPRIVATEKEY);
 	}
 
@@ -1472,6 +1498,10 @@ dst_key_sigsize(const dst_key_t *key, unsigned int *n) {
 		break;
 	case DST_ALG_SPHINCSSHA256128S:
 		*n = DNS_SIG_SPHINCSSHA256128SSIZE;
+		break;
+	case DST_ALG_XMSS:
+	case DST_ALG_XMSSMT:
+		*n = key->keydata.oqs_stfl_keypair.ctx->length_signature;
 		break;
 	case DST_ALG_DH:
 	default:

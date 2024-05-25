@@ -1002,7 +1002,7 @@ static const char *dbargv_default[] = { "rbt" };
 	do {                                                                 \
 		isc_interval_t _i;                                           \
 		uint32_t _j;                                                 \
-		_j = (b)-isc_random_uniform((b) / 4);                        \
+		_j = (b) - isc_random_uniform((b) / 4);                      \
 		isc_interval_set(&_i, _j, 0);                                \
 		if (isc_time_add((a), &_i, (c)) != ISC_R_SUCCESS) {          \
 			dns_zone_log(zone, ISC_LOG_WARNING,                  \
@@ -4033,8 +4033,8 @@ create_keydata(dns_zone_t *zone, dns_db_t *db, dns_dbversion_t *ver,
 	isc_result_t result = ISC_R_SUCCESS;
 	dns_rdata_t rdata = DNS_RDATA_INIT;
 	dns_rdata_keydata_t kd;
-	// OQS updated from 4096 to 8192
-	unsigned char rrdata[8192];
+	// OQS updated from 4096 to 39000
+	unsigned char rrdata[39000];
 	isc_buffer_t rrdatabuf;
 	isc_stdtime_t now = isc_stdtime_now();
 
@@ -4104,8 +4104,8 @@ compute_tag(dns_name_t *name, dns_rdata_dnskey_t *dnskey, isc_mem_t *mctx,
 	    dns_keytag_t *tag) {
 	isc_result_t result;
 	dns_rdata_t rdata = DNS_RDATA_INIT;
-	// OQS updated from 4096 to 8192
-	unsigned char data[8192];
+	// OQS updated from 4096 to 39000
+	unsigned char data[39000];
 	isc_buffer_t buffer;
 	dst_key_t *dstkey = NULL;
 
@@ -4147,8 +4147,8 @@ trust_key(dns_zone_t *zone, dns_name_t *keyname, dns_rdata_dnskey_t *dnskey,
 	  bool initial) {
 	isc_result_t result;
 	dns_rdata_t rdata = DNS_RDATA_INIT;
-	// OQS updated from 4096 to 8192
-	unsigned char data[8192], digest[ISC_MAX_MD_SIZE];
+	// OQS updated from 4096 to 39000
+	unsigned char data[39000], digest[ISC_MAX_MD_SIZE];
 	isc_buffer_t buffer;
 	dns_keytable_t *sr = NULL;
 	dns_rdata_ds_t ds;
@@ -9616,8 +9616,8 @@ normalize_key(dns_rdata_t *rr, dns_rdata_t *target, unsigned char *data,
 
 static bool
 matchkey(dns_rdataset_t *rdset, dns_rdata_t *rr) {
-	// OQS updated from 4096 to 8192
-	unsigned char data1[8192], data2[8192];
+	// OQS updated from 4096 to 39000
+	unsigned char data1[39000], data2[39000];
 	dns_rdata_t rdata, rdata1, rdata2;
 	isc_result_t result;
 
@@ -9730,8 +9730,8 @@ static isc_result_t
 minimal_update(dns_keyfetch_t *kfetch, dns_dbversion_t *ver, dns_diff_t *diff) {
 	isc_result_t result;
 	isc_buffer_t keyb;
-	// OQS updated from 4096 to 8192
-	unsigned char key_buf[8192];
+	// OQS updated from 4096 to 39000
+	unsigned char key_buf[39000];
 	dns_rdata_t rdata = DNS_RDATA_INIT;
 	dns_rdata_keydata_t keydata;
 	dns_name_t *name;
@@ -9790,8 +9790,8 @@ revocable(dns_keyfetch_t *kfetch, dns_rdata_keydata_t *keydata) {
 	dns_rdata_rrsig_t sig;
 	dns_rdata_dnskey_t dnskey;
 	dst_key_t *dstkey = NULL;
-	// OQS updated from 4096 to 8192
-	unsigned char key_buf[8192];
+	// OQS updated from 4096 to 39000
+	unsigned char key_buf[39000];
 	isc_buffer_t keyb;
 	bool answer = false;
 
@@ -9872,8 +9872,8 @@ keyfetch_done(void *arg) {
 	dns_rdata_keydata_t keydata;
 	bool initializing;
 	char namebuf[DNS_NAME_FORMATSIZE];
-	// OQS updated from 4096 to 8192
-	unsigned char key_buf[8192];
+	// OQS updated from 4096 to 39000
+	unsigned char key_buf[39000];
 	isc_buffer_t keyb;
 	dst_key_t *dstkey = NULL;
 	isc_stdtime_t now;
@@ -15474,8 +15474,8 @@ dns_zone_nameonly(dns_zone_t *zone, char *buf, size_t length) {
 void
 dns_zone_logv(dns_zone_t *zone, isc_logcategory_t *category, int level,
 	      const char *prefix, const char *fmt, va_list ap) {
-	// OQS updated from 4096 to 8192
-	char message[8192];
+	// OQS updated from 4096 to 39000
+	char message[39000];
 	const char *zstr;
 
 	REQUIRE(DNS_ZONE_VALID(zone));

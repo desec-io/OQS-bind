@@ -144,6 +144,7 @@ libdns_la_HEADERS =			\
 dstdir = $(includedir)/dst
 dst_HEADERS =				\
 	include/dst/dst.h		\
+	include/dst/xmss.h		\
 	include/dst/gssapi.h
 
 irsdir = $(includedir)/irs
@@ -202,6 +203,7 @@ libdns_la_SOURCES =			\
 	nsec.c				\
 	nsec3.c				\
 	nta.c				\
+	liboqsstateful_link.c           \
 	openssl_link.c			\
 	openssl_shim.c			\
 	openssl_shim.h			\
