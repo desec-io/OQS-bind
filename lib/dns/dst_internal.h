@@ -30,6 +30,7 @@
 #pragma once
 
 #include <inttypes.h>
+#include <oqs/oqs.h>
 #include <stdbool.h>
 
 #include <openssl/err.h>
@@ -67,6 +68,8 @@ typedef struct dst_func dst_func_t;
 
 typedef struct dst_hmac_key dst_hmac_key_t;
 
+typedef struct stfl_meta stfl_meta_t;
+
 /*%
  * Indicate whether a DST context will be used for signing
  * or for verification
@@ -101,6 +104,13 @@ struct dst_key {
 			EVP_PKEY *pub;
 			EVP_PKEY *priv;
 		} pkeypair;
+		struct {
+			isc_buffer_t *pub;
+			OQS_SIG_STFL_SECRET_KEY *priv;
+			OQS_SIG_STFL *ctx;
+			isc_mutex_t lock;
+			stfl_meta_t *meta;
+		} oqs_stfl_keypair;
 	} keydata; /*%< pointer to key in crypto pkg fmt */
 
 	isc_stdtime_t times[DST_MAX_TIMES + 1]; /*%< timing metadata */
@@ -223,6 +233,8 @@ dst__gssapi_init(struct dst_func **funcp);
 #endif /* HAVE_GSSAPI*/
 isc_result_t
 dst__openssloqs_init(struct dst_func **funcp);
+isc_result_t
+dst__liboqsstateful_init(struct dst_func **funcp);
 
 /*%
  * Destructors

@@ -229,8 +229,8 @@ STATIC_ASSERT(NS_PROCESSING_LIMIT > NS_RR_LIMIT,
 /*%
  * Maximum EDNS0 input packet size.
  */
-// OQS updated from 4096 to 8192
-#define RECV_BUFFER_SIZE 8192 /* XXXRTH  Constant. */
+// OQS updated from 4096 to 65355
+#define RECV_BUFFER_SIZE 65355 /* XXXRTH  Constant. */
 
 /*%
  * This defines the maximum number of timeouts we will permit before we

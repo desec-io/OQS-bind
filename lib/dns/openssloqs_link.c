@@ -44,8 +44,7 @@
 #define SPHINCSSHA256128S_PRIVATEKEYSIZE 64
 
 typedef struct oqs_tags {
-	unsigned int ntags, private_key_tag, public_key_tag, engine_tag,
-		label_tag;
+	unsigned int ntags, private_key_tag, public_key_tag;
 } oqs_tags_t;
 
 typedef struct oqs_alginfo {
@@ -55,19 +54,17 @@ typedef struct oqs_alginfo {
 } oqs_alginfo_t;
 
 static const oqs_alginfo_t *
-openssloqs_alg_info(unsigned int key_alg) {
+openssloqs_alg_info(dst_algorithm_t key_alg) {
 	if (key_alg == DST_ALG_FALCON512) {
 		static const oqs_alginfo_t oqs_alginfo = {
-			.alg_name = "falcon512",
+			.alg_name = "falconpadded512",
 			.key_size = DNS_KEY_FALCON512SIZE,
 			.priv_key_size = FALCON512_PRIVATEKEYSIZE,
 			.sig_size = DNS_SIG_FALCON512SIZE,
 			.tags = {
-				.ntags = OQS_NTAGS,
+				.ntags = OQS_PQC_NTAGS,
 				.private_key_tag = TAG_FALCON512_PRIVATEKEY,
 				.public_key_tag = TAG_FALCON512_PUBLICKEY,
-				.engine_tag = TAG_FALCON512_ENGINE,
-				.label_tag = TAG_FALCON512_LABEL,
 			},
 		};
 		return &oqs_alginfo;
@@ -79,11 +76,9 @@ openssloqs_alg_info(unsigned int key_alg) {
 			.priv_key_size = DILITHIUM2_PRIVATEKEYSIZE,
 			.sig_size = DNS_SIG_DILITHIUM2SIZE,
 			.tags = {
-				.ntags = OQS_NTAGS,
+				.ntags = OQS_PQC_NTAGS,
 				.private_key_tag = TAG_DILITHIUM2_PRIVATEKEY,
 				.public_key_tag = TAG_DILITHIUM2_PUBLICKEY,
-				.engine_tag = TAG_DILITHIUM2_ENGINE,
-				.label_tag = TAG_DILITHIUM2_LABEL,
 			},
 		};
 		return &oqs_alginfo;
@@ -95,11 +90,9 @@ openssloqs_alg_info(unsigned int key_alg) {
 			.priv_key_size = SPHINCSSHA256128S_PRIVATEKEYSIZE,
 			.sig_size = DNS_SIG_SPHINCSSHA256128SSIZE,
 			.tags = {
-				.ntags = OQS_NTAGS,
+				.ntags = OQS_PQC_NTAGS,
 				.private_key_tag = TAG_SPHINCSSHA256128S_PRIVATEKEY,
 				.public_key_tag = TAG_SPHINCSSHA256128S_PUBLICKEY,
-				.engine_tag = TAG_SPHINCSSHA256128S_ENGINE,
-				.label_tag = TAG_SPHINCSSHA256128S_LABEL,
 			},
 		};
 		return &oqs_alginfo;
@@ -117,9 +110,8 @@ raw_pub_key_to_ossl(const oqs_alginfo_t *alginfo, const unsigned char *pub_key,
 		if (pub_key_len == NULL) {
 			return (ret);
 		}
-		*pkey = EVP_PKEY_new_raw_public_key_ex(
-			NULL, 
-			alg_name, NULL, pub_key, *pub_key_len);
+		*pkey = EVP_PKEY_new_raw_public_key_ex(NULL, alg_name, NULL,
+						       pub_key, *pub_key_len);
 		if (*pkey == NULL) {
 			ERR_print_errors_fp(stderr);
 			return (dst__openssl_toresult(ret));
@@ -488,7 +480,7 @@ static isc_result_t
 openssloqs_parse(dst_key_t *key, isc_lex_t *lexer, dst_key_t *pub) {
 	dst_private_t priv;
 	isc_result_t ret;
-	int i, privkey_index, pubkey_index = -1;
+	int i, privkey_index = -1, pubkey_index = -1;
 	const char *engine = NULL, *label = NULL;
 	EVP_PKEY *pkey = NULL, *pubpkey = NULL;
 	size_t pub_len, priv_len;
@@ -523,16 +515,6 @@ openssloqs_parse(dst_key_t *key, isc_lex_t *lexer, dst_key_t *pub) {
 
 	for (i = 0; i < priv.nelements; i++) {
 		switch (priv.elements[i].tag) {
-		case TAG_FALCON512_ENGINE:
-		case TAG_DILITHIUM2_ENGINE:
-		case TAG_SPHINCSSHA256128S_ENGINE:
-			engine = (char *)priv.elements[i].data;
-			break;
-		case TAG_FALCON512_LABEL:
-		case TAG_DILITHIUM2_LABEL:
-		case TAG_SPHINCSSHA256128S_LABEL:
-			label = (char *)priv.elements[i].data;
-			break;
 		case TAG_FALCON512_PRIVATEKEY:
 		case TAG_DILITHIUM2_PRIVATEKEY:
 		case TAG_SPHINCSSHA256128S_PRIVATEKEY:
@@ -547,11 +529,8 @@ openssloqs_parse(dst_key_t *key, isc_lex_t *lexer, dst_key_t *pub) {
 			break;
 		}
 	}
-	if (privkey_index < 0) {
+	if (privkey_index < 0 || pubkey_index < 0) {
 		DST_RET(DST_R_INVALIDPRIVATEKEY);
-	}
-	if (pubkey_index < 0) {
-		DST_RET(DST_R_INVALIDPUBLICKEY);
 	}
 	priv_len = priv.elements[privkey_index].length;
 	pub_len = priv.elements[pubkey_index].length;
@@ -577,29 +556,21 @@ err:
 }
 
 static dst_func_t openssloqs_functions = {
-	openssloqs_createctx,
-	NULL, /*%< createctx2 */
-	openssloqs_destroyctx,
-	openssloqs_adddata,
-	openssloqs_sign,
-	openssloqs_verify,
-	NULL, /*%< verify2 */
-	NULL, /*%< computesecret */
-	dst__openssl_keypair_compare,
-	NULL, /*%< paramcompare */
-	openssloqs_generate,
-	dst__openssl_keypair_isprivate,
+	openssloqs_createctx, NULL, /*%< createctx2 */
+	openssloqs_destroyctx, openssloqs_adddata, openssloqs_sign,
+	openssloqs_verify, NULL,	    /*%< verify2 */
+	NULL,				    /*%< computesecret */
+	dst__openssl_keypair_compare, NULL, /*%< paramcompare */
+	openssloqs_generate, dst__openssl_keypair_isprivate,
 	dst__openssl_keypair_destroy,
 	openssloqs_todns,   // called by dst_key_todns converts a dst_key to a
 			    // buffer
 	openssloqs_fromdns, // called by from buffer and constructs a key from
 			    // dns
-	openssloqs_tofile,
-	openssloqs_parse,
-	NULL, /*%< cleanup */
-	NULL, /*%< fromlabel */
-	NULL, /*%< dump */
-	NULL, /*%< restore */
+	openssloqs_tofile, openssloqs_parse, NULL, /*%< cleanup */
+	NULL,					   /*%< fromlabel */
+	NULL,					   /*%< dump */
+	NULL,					   /*%< restore */
 };
 
 isc_result_t
