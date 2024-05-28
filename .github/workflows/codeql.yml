@@ -77,11 +77,11 @@ jobs:
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
     - name: Upload config.log if configure fails
-          if: failure()
-          uses: actions/upload-artifact@v2
-          with:
-            name: config-log
-            path: ${{ runner.workspace }}/OQS-bind/config.log
+      if: failure()
+      uses: actions/upload-artifact@v2
+      with:
+        name: config-log
+        path: ${{ runner.workspace }}/OQS-bind/config.log
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2
