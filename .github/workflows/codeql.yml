@@ -83,6 +83,12 @@ jobs:
       with:
         name: config-log
         path: ${{ runner.workspace }}/OQS-bind/config.log
+    - name: Upload configure script if configure fails
+      if: failure()
+      uses: actions/upload-artifact@v2
+      with:
+        name: configure
+        path: ${{ runner.workspace }}/OQS-bind/configure
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2
