@@ -399,8 +399,7 @@ AC_COMPILE_IFELSE(
 	[[atomic_int_fast64_t val = 0; atomic_fetch_add_explicit(&val, 1, memory_order_relaxed);]]
       )],
      [AC_MSG_RESULT([no])],
-     [CFLAGS="$CFLAGS"
-      LIBS="$LIBS -latomic"
+     [LIBS="$LIBS -latomic"
       AC_LINK_IFELSE(
 	[AC_LANG_PROGRAM(
 	   [[#include <stdatomic.h>]],

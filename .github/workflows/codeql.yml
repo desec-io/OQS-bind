@@ -77,6 +77,7 @@ jobs:
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
         liboqs_DIR: ${{ runner.workspace }}/local_deps/oqs
+        LD_LIBRARY_PATH: ${{ liboqs_DIR }}/lib
     - name: Upload config.log if configure fails
       if: failure()
       uses: actions/upload-artifact@v2
