@@ -11,7 +11,7 @@ This project is not officially affiliated with Open Quantum Safe.
 
 ## Algorithms
 Currently only DNSSEC is supported and tested with a small number of algorithms,
-but DoT and DoH inprinciple should work. I plan on eventually enabling more DNSSEC PQC algorithms in the
+but DoT and DoH inprinciple should work. I plan on eventually enabling more DNSSEC quantum resistant algorithms in the
 future and automating enabling and disabling them, but for now this must be done by hand. The algorithms
 we support in DNSSEC are as follows:
 
@@ -21,6 +21,8 @@ we support in DNSSEC are as follows:
 |           Falcon-512         |         17          |
 |           Dilithium2         |         18          |
 | SPHINCS+-SHA-256-128s Simple |         19          |
+|             XMSS             |         20          |
+|            XMSSMT            |         21          |
 
 We opted to start the algorithm IDs at 17 because of the discussion seen
 [here](https://mailarchive.ietf.org/arch/msg/dnsop/2xKvE-g1WU5VozEDN7-h2e5y-MQ/).
