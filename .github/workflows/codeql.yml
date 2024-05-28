@@ -72,12 +72,11 @@ jobs:
       run: |
         cd ${{ runner.workspace }}/OQS-bind
         autoreconf -fi
-        ./configure LIBS="-loqs" CFLAGS="-I$liboqs_DIR/include" --with-openssl=$OPENSSL_ROOT_DIR
+        ./configure LIBS="-loqs" CFLAGS="-I$liboqs_DIR/include" LDFLAGS="-L$liboqs_DIR/lib"--with-openssl=$OPENSSL_ROOT_DIR
         make -j $NPROC
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
         liboqs_DIR: ${{ runner.workspace }}/local_deps/oqs
-        LDFLAGS: "-L$liboqs_DIR/lib"
     - name: Upload config.log if configure fails
       if: failure()
       uses: actions/upload-artifact@v2
