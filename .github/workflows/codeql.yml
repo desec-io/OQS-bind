@@ -72,10 +72,11 @@ jobs:
       run: |
         cd ${{ runner.workspace }}/OQS-bind
         autoreconf -fi
-        ./configure LIBS="-loqs" --with-openssl=$OPENSSL_ROOT_DIR
+        ./configure LIBS="-loqs" CFLAGS="-I$liboqs_DIR/include" LDFLAGS="-L$liboqs_DIR/lib" --with-openssl=$OPENSSL_ROOT_DIR
         make -j $NPROC
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
+        liboqs_DIR: ${{ runner.workspace }}/local_deps/oqs
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2

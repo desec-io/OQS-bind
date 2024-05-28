@@ -76,6 +76,9 @@ m4_version_prereq([2.70],
 		  [AC_PROG_CC_C99])
 AC_PROG_CPP_WERROR
 
+CFLAGS_FOR_BUILD=$CFLAGS
+LDFLAGS_FOR_BUILD=$LDFLAGS
+
 #
 # Find build compiler when cross compiling
 #
