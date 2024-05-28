@@ -72,8 +72,8 @@ jobs:
       run: |
         cd ${{ runner.workspace }}/OQS-bind
         autoreconf -fi
-        ./configure LIBS="-loqs" CXXFLAGS="-I$liboqs_DIR/include -L$liboqs_DIR" --with-openssl=$OPENSSL_ROOT_DIR
         ls $liboqs_DIR
+        ./configure LIBS="-loqs" CXXFLAGS="-I$liboqs_DIR/include -L$liboqs_DIR" --with-openssl=$OPENSSL_ROOT_DIR
         make -j $NPROC
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
