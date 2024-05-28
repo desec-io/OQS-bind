@@ -437,7 +437,7 @@ liboqsstateful_tofile(const dst_key_t *key, const char *directory) {
 	isc_result_t ret;
 	dst_private_t priv;
 	unsigned char *privbuf = NULL, *pubbuf = NULL;
-	size_t privlen, publen;
+	size_t privlen = 0, publen = 0;
 	const oqs_stfl_alginfo_t *alginfo =
 		liboqsstateful_alg_info(key->key_alg);
 
