@@ -72,10 +72,24 @@ jobs:
       run: |
         cd ${{ runner.workspace }}/OQS-bind
         autoreconf -fi
-        ./configure LIBS="-loqs" --with-openssl=$OPENSSL_ROOT_DIR
+        ./configure CC=gcc LIBS="-loqs" CFLAGS="-I$liboqs_DIR/include" LDFLAGS="-L$liboqs_DIR/lib" --with-openssl=$OPENSSL_ROOT_DIR --enable-full-report
         make -j $NPROC
       env:
         OPENSSL_ROOT_DIR: ${{ runner.workspace }}/local_deps/ossl
+        liboqs_DIR: ${{ runner.workspace }}/local_deps/oqs
+        LD_LIBRARY_PATH: ${{ runner.workspace }}/local_deps/oqs/lib
+    - name: Upload config.log if configure fails
+      if: failure()
+      uses: actions/upload-artifact@v2
+      with:
+        name: config-log
+        path: ${{ runner.workspace }}/OQS-bind/config.log
+    - name: Upload configure script if configure fails
+      if: failure()
+      uses: actions/upload-artifact@v2
+      with:
+        name: configure
+        path: ${{ runner.workspace }}/OQS-bind/configure
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v2
