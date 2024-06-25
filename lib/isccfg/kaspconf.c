@@ -30,6 +30,8 @@
 #include <dns/secalg.h>
 #include <dns/ttl.h>
 
+#include <dst/xmss.h>
+
 #include <isccfg/cfg.h>
 #include <isccfg/duration.h>
 #include <isccfg/kaspconf.h>
