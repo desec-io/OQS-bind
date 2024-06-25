@@ -6535,7 +6535,7 @@ add_sigs(dns_db_t *db, dns_dbversion_t *ver, dns_name_t *name, dns_zone_t *zone,
 	dns_stats_t *dnssecsignstats;
 	dns_rdataset_t rdataset;
 	dns_rdata_t sig_rdata = DNS_RDATA_INIT;
-	unsigned char data[1024]; /* XXX */
+	unsigned char data[20480]; /* XXX */ // OQS_INCREASED FROM 1024 to account for XMSSMT-SHA256-H40/8 signatures
 	isc_buffer_t buffer;
 	unsigned int i;
 	bool use_kasp = false;
