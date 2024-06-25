@@ -7154,7 +7154,7 @@ sign_a_node(dns_db_t *db, dns_zone_t *zone, dns_name_t *name,
 	dns_stats_t *dnssecsignstats;
 
 	isc_buffer_t buffer;
-	unsigned char data[1024];
+	unsigned char data[20480]; // OQS increased this from 1024 to account for XMSSMT-SHA256-H40/8 signatures
 	bool seen_soa, seen_ns, seen_rr, seen_nsec, seen_nsec3, seen_ds;
 
 	result = dns_db_allrdatasets(db, node, version, 0, 0, &iterator);
