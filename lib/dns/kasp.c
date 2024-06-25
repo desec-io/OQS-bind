@@ -28,6 +28,7 @@
 #include <dns/log.h>
 
 #include <dst/dst.h>
+#include <dst/xmss.h>
 
 /* Default TTLsig (maximum zone ttl) */
 #define DEFAULT_TTLSIG 604800 /* one week */
@@ -398,7 +399,7 @@ dns_kasp_key_create(dns_kasp_t *kasp, dns_kasp_key_t **keyp) {
 
 	key->lifetime = 0;
 	key->algorithm = 0;
-	key->length = -1;
+	key->param = -1;
 	key->role = 0;
 	*keyp = key;
 	return (ISC_R_SUCCESS);
@@ -431,8 +432,8 @@ dns_kasp_key_size(dns_kasp_key_t *key) {
 	case DNS_KEYALG_RSASHA256:
 	case DNS_KEYALG_RSASHA512:
 		min = (key->algorithm == DNS_KEYALG_RSASHA512) ? 1024 : 512;
-		if (key->length > -1) {
-			size = (unsigned int)key->length;
+		if (key->param > -1) {
+			size = (unsigned int)key->param;
 			if (size < min) {
 				size = min;
 			}
@@ -455,6 +456,28 @@ dns_kasp_key_size(dns_kasp_key_t *key) {
 	case DNS_KEYALG_ED448:
 		size = 456;
 		break;
+	case DST_ALG_FALCON512:
+		size = 7176;
+		break;
+	case DST_ALG_DILITHIUM2:
+		size = 10496;
+		break;
+	case DST_ALG_SPHINCSSHA256128S:
+		size = 256;
+		break;
+	case DST_ALG_XMSS:
+		char *xmss_name = xmss_oid_to_name(key->param);
+		if (xmss_name != NULL) {
+			size = xmss_name_to_bits(xmss_name);
+		}
+		break;
+	case DST_ALG_XMSSMT:
+		char *xmssmt_name = xmssmt_oid_to_name(key->param);
+		if (xmssmt_name != NULL) {
+			size = xmssmt_name_to_bits(xmssmt_name);
+		}
+		break;
+	}
 	default:
 		/* unsupported */
 		break;
