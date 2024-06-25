@@ -252,6 +252,7 @@ libdns_la_SOURCES =			\
 	validator.c			\
 	view.c				\
 	xfrin.c				\
+	xmss.c				\
 	zone.c				\
 	zone_p.h			\
 	zoneverify.c			\
