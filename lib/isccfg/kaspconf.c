@@ -30,6 +30,8 @@
 #include <dns/secalg.h>
 #include <dns/ttl.h>
 
+#include <dst/xmss.h>
+
 #include <isccfg/cfg.h>
 #include <isccfg/duration.h>
 #include <isccfg/kaspconf.h>
@@ -110,10 +112,11 @@ cfg_kaspkey_fromconfig(const cfg_obj_t *config, dns_kasp_t *kasp,
 		key->role |= DNS_KASP_KEY_ROLE_KSK | DNS_KASP_KEY_ROLE_ZSK;
 		key->lifetime = 0; /* unlimited */
 		key->algorithm = DNS_KEYALG_ECDSA256;
-		key->length = -1;
+		key->param = -1;
 	} else {
 		const char *rolestr = NULL;
 		const cfg_obj_t *obj = NULL;
+		const char *algname;
 		isc_consttextregion_t alg;
 		bool error = false;
 
@@ -159,8 +162,21 @@ cfg_kaspkey_fromconfig(const cfg_obj_t *config, dns_kasp_t *kasp,
 		}
 
 		obj = cfg_tuple_get(config, "algorithm");
-		alg.base = cfg_obj_asstring(obj);
-		alg.length = strlen(alg.base);
+		algname = cfg_obj_asstring(obj);
+		if (strncmp(algname, "XMSSMT", 6) == 0) {
+			char *oqs_algname = (char *)xmssmt_bindname_to_name(algname);
+			key->param = xmssmt_name_to_oid(oqs_algname);
+			alg.base = (char *)"XMSSMT";
+			alg.length = strlen("XMSSMT");
+		} else if (strncmp(algname, "XMSS", 4) == 0) {
+			char *oqs_algname = (char *)xmss_bindname_to_name(algname);
+			key->param = xmss_name_to_oid(oqs_algname);
+			alg.base = (char *)"XMSS";
+			alg.length = strlen("XMSS");
+		} else {
+			alg.base = algname;
+			alg.length = strlen(algname);
+		}
 		result = dns_secalg_fromtext(&key->algorithm,
 					     (isc_textregion_t *)&alg);
 		if (result != ISC_R_SUCCESS) {
@@ -222,6 +238,11 @@ cfg_kaspkey_fromconfig(const cfg_obj_t *config, dns_kasp_t *kasp,
 			case DNS_KEYALG_ECDSA384:
 			case DNS_KEYALG_ED25519:
 			case DNS_KEYALG_ED448:
+			case DNS_KEYALG_FALCON512:
+			case DNS_KEYALG_DILITHIUM2:
+			case DNS_KEYALG_SPHINCSSHA256128S:
+			case DNS_KEYALG_XMSS:
+			case DNS_KEYALG_XMSSMT:
 				cfg_obj_log(obj, logctx, ISC_LOG_WARNING,
 					    "dnssec-policy: key algorithm %s "
 					    "has predefined length; ignoring "
@@ -231,7 +252,7 @@ cfg_kaspkey_fromconfig(const cfg_obj_t *config, dns_kasp_t *kasp,
 				break;
 			}
 
-			key->length = size;
+			key->param = size;
 		}
 	}
 
@@ -612,7 +633,7 @@ cfg_kasp_fromconfig(const cfg_obj_t *config, dns_kasp_t *default_kasp,
 			}
 			new_key->lifetime = dns_kasp_key_lifetime(key);
 			new_key->algorithm = dns_kasp_key_algorithm(key);
-			new_key->length = dns_kasp_key_size(key);
+			new_key->param = dns_kasp_key_size(key);
 			dns_kasp_addkey(kasp, new_key);
 		}
 	}
