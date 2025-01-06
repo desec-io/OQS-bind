@@ -102,6 +102,8 @@
 
 #define DNSDEFAULTPORT 53
 
+#define DEFAULT_EDNS_BUFSIZE 1232
+
 /* Number of addresses to request from isc_getaddresses() */
 #define MAX_SERVERADDRS 4
 
@@ -175,6 +177,8 @@ static isc_mutex_t answer_lock;
 static dns_message_t *answer = NULL;
 static uint32_t default_ttl = 0;
 static bool default_ttl_set = false;
+static uint32_t lease = 0, keylease = 0;
+static bool lease_set = false, keylease_set = false;
 static bool checknames = true;
 static bool checksvcb = true;
 static const char *resolvconf = RESOLV_CONF;
@@ -275,8 +279,7 @@ fatal(const char *format, ...) {
 	vfprintf(stderr, format, args);
 	va_end(args);
 	fprintf(stderr, "\n");
-	isc__tls_setfatalmode();
-	exit(1);
+	_exit(EXIT_FAILURE);
 }
 
 static void
@@ -364,7 +367,8 @@ reset_system(void) {
 	if (updatemsg != NULL) {
 		dns_message_reset(updatemsg, DNS_MESSAGE_INTENTRENDER);
 	} else {
-		dns_message_create(gmctx, DNS_MESSAGE_INTENTRENDER, &updatemsg);
+		dns_message_create(gmctx, NULL, NULL, DNS_MESSAGE_INTENTRENDER,
+				   &updatemsg);
 	}
 	updatemsg->opcode = dns_opcode_update;
 	if (usegsstsig) {
@@ -378,13 +382,13 @@ reset_system(void) {
 }
 
 static bool
-parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac,
+parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac_alg,
 	   uint16_t *digestbitsp) {
 	uint16_t digestbits = 0;
 	isc_result_t result;
 	char buf[20];
 
-	REQUIRE(hmac != NULL);
+	REQUIRE(hmac_alg != NULL);
 	REQUIRE(hmacstr != NULL);
 
 	if (len >= sizeof(buf)) {
@@ -396,9 +400,9 @@ parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac,
 	strlcpy(buf, hmacstr, ISC_MIN(len + 1, sizeof(buf)));
 
 	if (strcasecmp(buf, "hmac-md5") == 0) {
-		*hmac = DST_ALG_HMACMD5;
+		*hmac_alg = DST_ALG_HMACMD5;
 	} else if (strncasecmp(buf, "hmac-md5-", 9) == 0) {
-		*hmac = DST_ALG_HMACMD5;
+		*hmac_alg = DST_ALG_HMACMD5;
 		result = isc_parse_uint16(&digestbits, &buf[9], 10);
 		if (result != ISC_R_SUCCESS || digestbits > 128) {
 			error("digest-bits out of range [0..128]");
@@ -406,9 +410,9 @@ parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac,
 		}
 		*digestbitsp = (digestbits + 7) & ~0x7U;
 	} else if (strcasecmp(buf, "hmac-sha1") == 0) {
-		*hmac = DST_ALG_HMACSHA1;
+		*hmac_alg = DST_ALG_HMACSHA1;
 	} else if (strncasecmp(buf, "hmac-sha1-", 10) == 0) {
-		*hmac = DST_ALG_HMACSHA1;
+		*hmac_alg = DST_ALG_HMACSHA1;
 		result = isc_parse_uint16(&digestbits, &buf[10], 10);
 		if (result != ISC_R_SUCCESS || digestbits > 160) {
 			error("digest-bits out of range [0..160]");
@@ -416,9 +420,9 @@ parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac,
 		}
 		*digestbitsp = (digestbits + 7) & ~0x7U;
 	} else if (strcasecmp(buf, "hmac-sha224") == 0) {
-		*hmac = DST_ALG_HMACSHA224;
+		*hmac_alg = DST_ALG_HMACSHA224;
 	} else if (strncasecmp(buf, "hmac-sha224-", 12) == 0) {
-		*hmac = DST_ALG_HMACSHA224;
+		*hmac_alg = DST_ALG_HMACSHA224;
 		result = isc_parse_uint16(&digestbits, &buf[12], 10);
 		if (result != ISC_R_SUCCESS || digestbits > 224) {
 			error("digest-bits out of range [0..224]");
@@ -426,9 +430,9 @@ parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac,
 		}
 		*digestbitsp = (digestbits + 7) & ~0x7U;
 	} else if (strcasecmp(buf, "hmac-sha256") == 0) {
-		*hmac = DST_ALG_HMACSHA256;
+		*hmac_alg = DST_ALG_HMACSHA256;
 	} else if (strncasecmp(buf, "hmac-sha256-", 12) == 0) {
-		*hmac = DST_ALG_HMACSHA256;
+		*hmac_alg = DST_ALG_HMACSHA256;
 		result = isc_parse_uint16(&digestbits, &buf[12], 10);
 		if (result != ISC_R_SUCCESS || digestbits > 256) {
 			error("digest-bits out of range [0..256]");
@@ -436,9 +440,9 @@ parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac,
 		}
 		*digestbitsp = (digestbits + 7) & ~0x7U;
 	} else if (strcasecmp(buf, "hmac-sha384") == 0) {
-		*hmac = DST_ALG_HMACSHA384;
+		*hmac_alg = DST_ALG_HMACSHA384;
 	} else if (strncasecmp(buf, "hmac-sha384-", 12) == 0) {
-		*hmac = DST_ALG_HMACSHA384;
+		*hmac_alg = DST_ALG_HMACSHA384;
 		result = isc_parse_uint16(&digestbits, &buf[12], 10);
 		if (result != ISC_R_SUCCESS || digestbits > 384) {
 			error("digest-bits out of range [0..384]");
@@ -446,9 +450,9 @@ parse_hmac(const char *hmacstr, size_t len, dst_algorithm_t *hmac,
 		}
 		*digestbitsp = (digestbits + 7) & ~0x7U;
 	} else if (strcasecmp(buf, "hmac-sha512") == 0) {
-		*hmac = DST_ALG_HMACSHA512;
+		*hmac_alg = DST_ALG_HMACSHA512;
 	} else if (strncasecmp(buf, "hmac-sha512-", 12) == 0) {
-		*hmac = DST_ALG_HMACSHA512;
+		*hmac_alg = DST_ALG_HMACSHA512;
 		result = isc_parse_uint16(&digestbits, &buf[12], 10);
 		if (result != ISC_R_SUCCESS || digestbits > 512) {
 			error("digest-bits out of range [0..512]");
@@ -488,7 +492,7 @@ setup_keystr(void) {
 	dns_fixedname_t fkeyname;
 	dns_name_t *mykeyname = NULL;
 	char *name = NULL;
-	dst_algorithm_t hmac;
+	dst_algorithm_t hmac_alg;
 	uint16_t digestbits = 0;
 
 	mykeyname = dns_fixedname_initname(&fkeyname);
@@ -507,11 +511,11 @@ setup_keystr(void) {
 		}
 		name = secretstr;
 		secretstr = n + 1;
-		if (!parse_hmac(keystr, s - keystr, &hmac, &digestbits)) {
-			exit(1);
+		if (!parse_hmac(keystr, s - keystr, &hmac_alg, &digestbits)) {
+			exit(EXIT_FAILURE);
 		}
 	} else {
-		hmac = DST_ALG_HMACMD5;
+		hmac_alg = DST_ALG_HMACMD5;
 		name = keystr;
 		n = s;
 	}
@@ -538,8 +542,8 @@ setup_keystr(void) {
 	secretlen = isc_buffer_usedlength(&secretbuf);
 
 	debug("keycreate");
-	result = dns_tsigkey_create(mykeyname, hmac, secret, secretlen, gmctx,
-				    &tsigkey);
+	result = dns_tsigkey_create(mykeyname, hmac_alg, secret, secretlen,
+				    gmctx, &tsigkey);
 	if (result != ISC_R_SUCCESS) {
 		fprintf(stderr, "could not create key from %s: %s\n", keystr,
 			isc_result_totext(result));
@@ -622,7 +626,7 @@ static void
 setup_keyfile(isc_mem_t *mctx, isc_log_t *lctx) {
 	dst_key_t *dstkey = NULL;
 	isc_result_t result;
-	dst_algorithm_t hmac = DST_ALG_UNKNOWN;
+	dst_algorithm_t hmac_alg = DST_ALG_UNKNOWN;
 
 	debug("Creating key...");
 
@@ -658,7 +662,7 @@ setup_keyfile(isc_mem_t *mctx, isc_log_t *lctx) {
 	case DST_ALG_HMACSHA256:
 	case DST_ALG_HMACSHA384:
 	case DST_ALG_HMACSHA512:
-		hmac = dst_key_alg(dstkey);
+		hmac_alg = dst_key_alg(dstkey);
 		break;
 	default:
 		dst_key_attach(dstkey, &sig0key);
@@ -666,9 +670,9 @@ setup_keyfile(isc_mem_t *mctx, isc_log_t *lctx) {
 		return;
 	}
 
-	result = dns_tsigkey_createfromkey(dst_key_name(dstkey), hmac, dstkey,
-					   false, false, NULL, 0, 0, mctx,
-					   &tsigkey);
+	result = dns_tsigkey_createfromkey(dst_key_name(dstkey), hmac_alg,
+					   dstkey, false, false, NULL, 0, 0,
+					   mctx, &tsigkey);
 	dst_key_free(&dstkey);
 	if (result != ISC_R_SUCCESS) {
 		fprintf(stderr, "could not create key from %s: %s\n", keyfile,
@@ -798,7 +802,7 @@ create_name(const char *str, char *namedata, size_t len, dns_name_t *name) {
 }
 
 static void
-setup_system(void) {
+setup_system(void *arg ISC_ATTR_UNUSED) {
 	isc_result_t result;
 	isc_sockaddr_t bind_any, bind_any6;
 	isc_sockaddrlist_t *nslist;
@@ -919,7 +923,7 @@ setup_system(void) {
 
 	irs_resconf_destroy(&resconf);
 
-	result = dns_dispatchmgr_create(gmctx, netmgr, &dispatchmgr);
+	result = dns_dispatchmgr_create(gmctx, loopmgr, netmgr, &dispatchmgr);
 	check_result(result, "dns_dispatchmgr_create");
 
 	result = dst_lib_init(gmctx, NULL);
@@ -1049,7 +1053,7 @@ pre_parse_args(int argc, char **argv) {
 					"[-A tlscafile] [-H tlshostname] "
 					"[-O] ] [-v] [-V] [-P] [-T] [-4 | -6] "
 					"[filename]\n");
-			exit(1);
+			exit(EXIT_FAILURE);
 
 		case 'P':
 			for (t = 0xff00; t <= 0xfffe; t++) {
@@ -1087,7 +1091,7 @@ pre_parse_args(int argc, char **argv) {
 		}
 	}
 	if (doexit) {
-		exit(0);
+		exit(EXIT_SUCCESS);
 	}
 	isc_commandline_reset = true;
 	isc_commandline_index = 1;
@@ -1162,7 +1166,7 @@ parse_args(int argc, char **argv) {
 					"bad library debug value "
 					"'%s'\n",
 					isc_commandline_argument);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			logdebuglevel = i;
 			break;
@@ -1193,7 +1197,7 @@ parse_args(int argc, char **argv) {
 					"bad port number "
 					"'%s'\n",
 					isc_commandline_argument);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			break;
 		case 'S':
@@ -1205,7 +1209,7 @@ parse_args(int argc, char **argv) {
 			if (result != ISC_R_SUCCESS) {
 				fprintf(stderr, "bad timeout '%s'\n",
 					isc_commandline_argument);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			if (timeout == 0) {
 				timeout = UINT_MAX;
@@ -1217,7 +1221,7 @@ parse_args(int argc, char **argv) {
 			if (result != ISC_R_SUCCESS) {
 				fprintf(stderr, "bad udp timeout '%s'\n",
 					isc_commandline_argument);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			break;
 		case 'r':
@@ -1226,7 +1230,7 @@ parse_args(int argc, char **argv) {
 			if (result != ISC_R_SUCCESS) {
 				fprintf(stderr, "bad udp retries '%s'\n",
 					isc_commandline_argument);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			break;
 
@@ -1237,19 +1241,19 @@ parse_args(int argc, char **argv) {
 		default:
 			fprintf(stderr, "%s: unhandled option: %c\n", argv[0],
 				isc_commandline_option);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 	if (keyfile != NULL && keystr != NULL) {
 		fprintf(stderr, "%s: cannot specify both -k and -y\n", argv[0]);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 #if HAVE_GSSAPI
 	if (usegsstsig && (keyfile != NULL || keystr != NULL)) {
 		fprintf(stderr, "%s: cannot specify -g with -k or -y\n",
 			argv[0]);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 #else  /* HAVE_GSSAPI */
 	if (usegsstsig) {
@@ -1257,7 +1261,7 @@ parse_args(int argc, char **argv) {
 			"%s: cannot specify -g	or -o, "
 			"program not linked with GSS API Library\n",
 			argv[0]);
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 #endif /* HAVE_GSSAPI */
 
@@ -1270,14 +1274,14 @@ parse_args(int argc, char **argv) {
 				"%s: cannot specify the -K option without"
 				"the -E option, and vice versa.\n",
 				argv[0]);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 		if (tls_ca_file != NULL && tls_always_verify_remote == false) {
 			fprintf(stderr,
 				"%s: cannot specify the -A option in "
 				"conjuction with the -O option.\n",
 				argv[0]);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -1291,7 +1295,7 @@ parse_args(int argc, char **argv) {
 				fprintf(stderr, "could not open '%s': %s\n",
 					argv[isc_commandline_index],
 					isc_result_totext(result));
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 		}
 		if (!force_interactive) {
@@ -1517,6 +1521,90 @@ evaluate_prereq(char *cmdline) {
 	return (make_prereq(cmdline, ispositive, isrrset));
 }
 
+static void
+updateopt(void) {
+	isc_result_t result;
+	dns_ednsopt_t ednsopts[1];
+	unsigned char ul[8];
+	unsigned int count = 0;
+
+	if (lease_set) {
+		isc_buffer_t b;
+		INSIST(count < ARRAY_SIZE(ednsopts));
+		ednsopts[count++] = (dns_ednsopt_t){ .code = DNS_OPT_UL,
+						     .length = keylease_set ? 8
+									    : 4,
+						     .value = ul };
+
+		isc_buffer_init(&b, ul, sizeof(ul));
+		isc_buffer_putuint32(&b, lease);
+		isc_buffer_putuint32(&b, keylease);
+	}
+
+	if (count != 0) {
+		dns_rdataset_t *opt = NULL;
+		result = dns_message_buildopt(updatemsg, &opt, 0,
+					      DEFAULT_EDNS_BUFSIZE, 0, ednsopts,
+					      count);
+		check_result(result, "dns_message_buildopt");
+		result = dns_message_setopt(updatemsg, opt);
+		check_result(result, "dns_message_setopt");
+	} else {
+		result = dns_message_setopt(updatemsg, NULL);
+		check_result(result, "dns_message_setopt");
+	}
+}
+
+static uint16_t
+evaluate_lease(char *cmdline) {
+	char *word;
+	isc_result_t result;
+	uint32_t value1, value2;
+
+	word = nsu_strsep(&cmdline, " \t\r\n");
+	if (word == NULL || *word == 0) {
+		fprintf(stderr, "could not read ttl\n");
+		return (STATUS_SYNTAX);
+	}
+
+	if (!strcasecmp(word, "none")) {
+		lease = 0;
+		lease_set = false;
+		keylease = 0;
+		keylease_set = false;
+		updateopt();
+		return (STATUS_MORE);
+	}
+
+	result = isc_parse_uint32(&value1, word, 10);
+	if (result != ISC_R_SUCCESS) {
+		return (STATUS_SYNTAX);
+	}
+
+	word = nsu_strsep(&cmdline, " \t\r\n");
+	if (word == NULL || *word == 0) {
+		lease = value1;
+		lease_set = true;
+		keylease = 0;
+		keylease_set = false;
+		updateopt();
+		return (STATUS_MORE);
+	}
+
+	result = isc_parse_uint32(&value2, word, 10);
+	if (result != ISC_R_SUCCESS) {
+		return (STATUS_SYNTAX);
+	}
+
+	lease = value1;
+	lease_set = true;
+	keylease = value2;
+	keylease_set = true;
+	updateopt();
+
+	return (STATUS_MORE);
+}
+
 static uint16_t
 evaluate_server(char *cmdline) {
 	char *word, *server;
@@ -1633,7 +1721,7 @@ evaluate_key(char *cmdline) {
 	int secretlen;
 	unsigned char *secret = NULL;
 	isc_buffer_t secretbuf;
-	dst_algorithm_t hmac = DST_ALG_UNKNOWN;
+	dst_algorithm_t hmac_alg = DST_ALG_UNKNOWN;
 	uint16_t digestbits = 0;
 	char *n;
 
@@ -1647,12 +1735,12 @@ evaluate_key(char *cmdline) {
 
 	n = strchr(namestr, ':');
 	if (n != NULL) {
-		if (!parse_hmac(namestr, n - namestr, &hmac, &digestbits)) {
+		if (!parse_hmac(namestr, n - namestr, &hmac_alg, &digestbits)) {
 			return (STATUS_SYNTAX);
 		}
 		namestr = n + 1;
 	} else {
-		hmac = DST_ALG_HMACMD5;
+		hmac_alg = DST_ALG_HMACMD5;
 	}
 
 	isc_buffer_init(&b, namestr, strlen(namestr));
@@ -1684,8 +1772,8 @@ evaluate_key(char *cmdline) {
 	if (tsigkey != NULL) {
 		dns_tsigkey_detach(&tsigkey);
 	}
-	result = dns_tsigkey_create(mykeyname, hmac, secret, secretlen, gmctx,
-				    &tsigkey);
+	result = dns_tsigkey_create(mykeyname, hmac_alg, secret, secretlen,
+				    gmctx, &tsigkey);
 	isc_mem_free(gmctx, secret);
 	if (result != ISC_R_SUCCESS) {
 		fprintf(stderr, "could not create key from %s %s: %s\n",
@@ -2158,7 +2246,7 @@ show_message(FILE *stream, dns_message_t *msg, const char *description) {
 		if (bufsz > MAXTEXT) {
 			fprintf(stderr, "could not allocate large enough "
 					"buffer to display message\n");
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 		if (buf != NULL) {
 			isc_buffer_free(&buf);
@@ -2220,6 +2308,9 @@ do_next_command(char *cmdline) {
 	}
 	if (strcasecmp(word, "add") == 0) {
 		return (update_addordelete(cmdline, false));
+	}
+	if (strcasecmp(word, "lease") == 0) {
+		return (evaluate_lease(cmdline));
 	}
 	if (strcasecmp(word, "server") == 0) {
 		return (evaluate_server(cmdline));
@@ -2393,7 +2484,7 @@ static void
 done_update(void) {
 	ddebug("done_update()");
 
-	isc_async_current(loopmgr, getinput, NULL);
+	isc_async_current(getinput, NULL);
 }
 
 static void
@@ -2470,7 +2561,7 @@ update_completed(void *arg) {
 	}
 
 	LOCK(&answer_lock);
-	dns_message_create(gmctx, DNS_MESSAGE_INTENTPARSE, &answer);
+	dns_message_create(gmctx, NULL, NULL, DNS_MESSAGE_INTENTPARSE, &answer);
 	result = dns_request_getresponse(request, answer,
 					 DNS_MESSAGEPARSE_PRESERVEORDER);
 	switch (result) {
@@ -2658,7 +2749,7 @@ recvsoa(void *arg) {
 	reqinfo = NULL;
 
 	ddebug("About to create rcvmsg");
-	dns_message_create(gmctx, DNS_MESSAGE_INTENTPARSE, &rcvmsg);
+	dns_message_create(gmctx, NULL, NULL, DNS_MESSAGE_INTENTPARSE, &rcvmsg);
 	result = dns_request_getresponse(request, rcvmsg,
 					 DNS_MESSAGEPARSE_PRESERVEORDER);
 	if (result == DNS_R_TSIGERRORSET && servers != NULL) {
@@ -3069,7 +3160,7 @@ start_gssrequest(dns_name_t *primary) {
 	keyname->attributes.nocompress = true;
 
 	rmsg = NULL;
-	dns_message_create(gmctx, DNS_MESSAGE_INTENTRENDER, &rmsg);
+	dns_message_create(gmctx, NULL, NULL, DNS_MESSAGE_INTENTRENDER, &rmsg);
 
 	/* Build first request. */
 	context = GSS_C_NO_CONTEXT;
@@ -3184,7 +3275,7 @@ recvgss(void *arg) {
 	isc_mem_put(gmctx, reqinfo, sizeof(nsu_gssinfo_t));
 
 	ddebug("recvgss creating rcvmsg");
-	dns_message_create(gmctx, DNS_MESSAGE_INTENTPARSE, &rcvmsg);
+	dns_message_create(gmctx, NULL, NULL, DNS_MESSAGE_INTENTPARSE, &rcvmsg);
 
 	result = dns_request_getresponse(request, rcvmsg,
 					 DNS_MESSAGEPARSE_PRESERVEORDER);
@@ -3295,7 +3386,8 @@ start_update(void) {
 		return;
 	}
 
-	dns_message_create(gmctx, DNS_MESSAGE_INTENTRENDER, &soaquery);
+	dns_message_create(gmctx, NULL, NULL, DNS_MESSAGE_INTENTRENDER,
+			   &soaquery);
 
 	if (default_servers) {
 		soaquery->flags |= DNS_MESSAGEFLAG_RD;
@@ -3475,8 +3567,7 @@ main(int argc, char **argv) {
 	timeoutms = timeout * 1000;
 	isc_nm_settimeouts(netmgr, timeoutms, timeoutms, timeoutms, timeoutms);
 
-	setup_system();
-
+	isc_loopmgr_setup(loopmgr, setup_system, NULL);
 	isc_loopmgr_setup(loopmgr, getinput, NULL);
 	isc_loopmgr_teardown(loopmgr, shutdown_program, NULL);
 	isc_loopmgr_run(loopmgr);
@@ -3485,7 +3576,7 @@ main(int argc, char **argv) {
 
 	if (seenerror) {
 		return (2);
-	} else {
-		return (0);
 	}
+
+	return (0);
 }

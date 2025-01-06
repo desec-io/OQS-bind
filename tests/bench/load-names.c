@@ -87,7 +87,7 @@ const dns_qpmethods_t qpmethods = {
 			dns_name_format(name, buf, sizeof(buf));    \
 			fprintf(stderr, "%s: %s\n", buf,            \
 				isc_result_totext(result));         \
-			exit(1);                                    \
+			exit(EXIT_FAILURE);                         \
 		}                                                   \
 	} while (0)
 
@@ -183,24 +183,30 @@ thread_lfht(void *arg0) {
 static void *
 new_hashmap(isc_mem_t *mem) {
 	isc_hashmap_t *hashmap = NULL;
-	isc_hashmap_create(mem, 1, 0, &hashmap);
+	isc_hashmap_create(mem, 1, &hashmap);
 
 	return (hashmap);
 }
 
+static bool
+name_match(void *node, const void *key) {
+	const struct item_s *i = node;
+	return (dns_name_equal(&i->fixed.name, key));
+}
+
 static isc_result_t
 add_hashmap(void *hashmap, size_t count) {
-	isc_result_t result =
-		isc_hashmap_add(hashmap, NULL, item[count].fixed.name.ndata,
-				item[count].fixed.name.length, &item[count]);
+	isc_result_t result = isc_hashmap_add(
+		hashmap, dns_name_hash(&item[count].fixed.name), name_match,
+		&item[count].fixed.name, &item[count], NULL);
 	return (result);
 }
 
 static isc_result_t
 get_hashmap(void *hashmap, size_t count, void **pval) {
-	isc_result_t result =
-		isc_hashmap_find(hashmap, NULL, item[count].fixed.name.ndata,
-				 item[count].fixed.name.length, pval);
+	isc_result_t result = isc_hashmap_find(
+		hashmap, dns_name_hash(&item[count].fixed.name), name_match,
+		&item[count].fixed.name, pval);
 	return (result);
 }
 
@@ -305,15 +311,30 @@ new_rbt(isc_mem_t *mem) {
 
 static isc_result_t
 add_rbt(void *rbt, size_t count) {
-	isc_result_t result = dns_rbt_addname(rbt, &item[count].fixed.name,
-					      &item[count]);
+	isc_result_t result;
+	dns_rbtnode_t *node = NULL;
+
+	result = dns_rbt_addnode(rbt, &item[count].fixed.name, &node);
+	if (result == ISC_R_SUCCESS ||
+	    (result == ISC_R_EXISTS && node->data == NULL))
+	{
+		node->data = &item[count];
+		result = ISC_R_SUCCESS;
+	}
+
 	return (result);
 }
 
 static isc_result_t
 get_rbt(void *rbt, size_t count, void **pval) {
-	isc_result_t result = dns_rbt_findname(rbt, &item[count].fixed.name, 0,
-					       NULL, pval);
+	isc_result_t result;
+	dns_rbtnode_t *node = NULL;
+
+	result = dns_rbt_findnode(rbt, &item[count].fixed.name, NULL, &node,
+				  NULL, 0, NULL, NULL);
+	if (result == ISC_R_SUCCESS) {
+		*pval = node->data;
+	}
 	return (result);
 }
 
@@ -368,7 +389,7 @@ add_qp(void *qp, size_t count) {
 
 static void
 sqz_qp(void *qp) {
-	dns_qp_compact(qp, DNS_QPGC_ALL);
+	dns_qp_compact(qp, DNS_QPGC_MAYBE);
 }
 
 static isc_result_t
@@ -453,7 +474,7 @@ static struct fun fun_list[] = {
 	do {                                                                   \
 		if (!(check)) {                                                \
 			fprintf(stderr, "%s:%zu: %s\n", filename, lines, msg); \
-			exit(1);                                               \
+			exit(EXIT_FAILURE);                                    \
 		}                                                              \
 	} while (0)
 
@@ -474,7 +495,7 @@ main(int argc, char *argv[]) {
 	if (argc != 2) {
 		fprintf(stderr,
 			"usage: load-names <filename.csv> <nthreads>\n");
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	filename = argv[1];
@@ -482,7 +503,7 @@ main(int argc, char *argv[]) {
 	if (result != ISC_R_SUCCESS) {
 		fprintf(stderr, "stat(%s): %s\n", filename,
 			isc_result_totext(result));
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	filesize = (size_t)fileoff;
 
@@ -490,7 +511,7 @@ main(int argc, char *argv[]) {
 	fp = fopen(filename, "r");
 	if (fp == NULL || fread(filetext, 1, filesize, fp) < filesize) {
 		fprintf(stderr, "read(%s): %s\n", filename, strerror(errno));
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	fclose(fp);
 	filetext[filesize] = '\0';
@@ -547,7 +568,7 @@ main(int argc, char *argv[]) {
 			isc_mem_create(&mem);
 			map = fun->new (mem);
 
-			size_t nitems = ARRAY_SIZE(item) / (nthreads + 1);
+			size_t nitems = lines / (nthreads + 1);
 
 			isc_barrier_init(&barrier, nthreads);
 

@@ -102,7 +102,7 @@ usage(void) {
 	fprintf(stderr, "     K<name>+<alg>+<id>.key, "
 			"K<name>+<alg>+<id>.private\n");
 
-	exit(-1);
+	exit(EXIT_FAILURE);
 }
 
 int
@@ -331,7 +331,7 @@ main(int argc, char **argv) {
 		default:
 			fprintf(stderr, "%s: unhandled option -%c\n", program,
 				isc_commandline_option);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 	}
 
@@ -403,6 +403,7 @@ main(int argc, char **argv) {
 			case DST_ALG_SPHINCSSHA256128S:
 			case DST_ALG_XMSS:
 			case DST_ALG_XMSSMT:
+			case DST_ALG_MERKLE_TREE:
 				break;
 			default:
 				fatal("%s is incompatible with NSEC3; "
@@ -611,7 +612,7 @@ main(int argc, char **argv) {
 		fatal("failed to get key %s/%s: %s", namestr, algstr,
 		      isc_result_totext(ret));
 		UNREACHABLE();
-		exit(-1);
+		exit(EXIT_FAILURE);
 	}
 
 	/*

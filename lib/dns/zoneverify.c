@@ -886,6 +886,8 @@ verifyset(vctx_t *vctx, dns_rdataset_t *rdataset, const dns_name_t *name,
 		dns_name_format(name, namebuf, sizeof(namebuf));
 		dns_rdatatype_format(rdataset->type, typebuf, sizeof(typebuf));
 		for (size_t i = 0; i < ARRAY_SIZE(set_algorithms); i++) {
+			// jg Allow for mixed algorithms
+			/*
 			if ((vctx->act_algorithms[i] != 0) &&
 			    (set_algorithms[i] == 0))
 			{
@@ -896,6 +898,7 @@ verifyset(vctx_t *vctx, dns_rdataset_t *rdataset, const dns_name_t *name,
 						     algbuf, namebuf, typebuf);
 				vctx->bad_algorithms[i] = 1;
 			}
+			*/
 		}
 	}
 
@@ -940,7 +943,6 @@ verifynode(vctx_t *vctx, const dns_name_t *name, dns_dbnode_t *node,
 		 * other than NSEC and DS is not signed at a delegation.
 		 */
 		if (rdataset.type != dns_rdatatype_rrsig &&
-		    rdataset.type != dns_rdatatype_dnskey &&
 		    (!delegation || rdataset.type == dns_rdatatype_ds ||
 		     rdataset.type == dns_rdatatype_nsec))
 		{
@@ -955,11 +957,12 @@ verifynode(vctx_t *vctx, const dns_name_t *name, dns_dbnode_t *node,
 			if (rdataset.type > maxtype) {
 				maxtype = rdataset.type;
 			}
-		} else if (rdataset.type != dns_rdatatype_rrsig &&
-			   rdataset.type != dns_rdatatype_dnskey)
-		{
+		} else if (rdataset.type != dns_rdatatype_rrsig) {
 			if (rdataset.type == dns_rdatatype_ns) {
 				dns_nsec_setbit(types, rdataset.type, 1);
+				if (rdataset.type > maxtype) {
+					maxtype = rdataset.type;
+				}
 			}
 			result = check_no_rrsig(vctx, &rdataset, name, node);
 			if (result != ISC_R_SUCCESS) {
@@ -969,6 +972,9 @@ verifynode(vctx_t *vctx, const dns_name_t *name, dns_dbnode_t *node,
 			}
 		} else {
 			dns_nsec_setbit(types, rdataset.type, 1);
+			if (rdataset.type > maxtype) {
+				maxtype = rdataset.type;
+			}
 		}
 		dns_rdataset_disassociate(&rdataset);
 		result = dns_rdatasetiter_next(rdsiter);
@@ -1455,8 +1461,11 @@ check_dnskey_sigs(vctx_t *vctx, const dns_rdata_dnskey_t *dnskey,
 	/*
 	 * First, does this key sign the DNSKEY rrset?
 	 */
+
+	// JG note: TODO update with merkle tree algorithm
 	if (!dns_dnssec_selfsigns(keyrdata, vctx->origin, &vctx->keyset,
-				  &vctx->keysigs, false, vctx->mctx))
+				  &vctx->keysigs, false, vctx->mctx)
+			&& !dst_algorithm_is_deferred_signing(dnskey->algorithm))
 	{
 		if (!is_ksk &&
 		    dns_dnssec_signs(keyrdata, vctx->origin, &vctx->soaset,
@@ -1641,7 +1650,6 @@ determine_active_algorithms(vctx_t *vctx, bool ignore_kskflag,
 	char algbuf[DNS_SECALG_FORMATSIZE];
 
 	report("Verifying the zone using the following algorithms:");
-
 	for (size_t i = 0; i < ARRAY_SIZE(vctx->act_algorithms); i++) {
 		if (ignore_kskflag) {
 			vctx->act_algorithms[i] = (vctx->ksk_algorithms[i] !=
@@ -1653,6 +1661,13 @@ determine_active_algorithms(vctx_t *vctx, bool ignore_kskflag,
 			vctx->act_algorithms[i] = vctx->ksk_algorithms[i] != 0
 							  ? 1
 							  : 0;
+			if (dst_algorithm_is_deferred_signing(i)) {
+				vctx->act_algorithms[i] = (vctx->act_algorithms[i] !=
+								0 ||
+							   vctx->zsk_algorithms[i] != 0)
+								? 1
+								: 0;
+			}
 		}
 		if (vctx->act_algorithms[i] != 0) {
 			dns_secalg_format(i, algbuf, sizeof(algbuf));
@@ -1670,6 +1685,12 @@ determine_active_algorithms(vctx_t *vctx, bool ignore_kskflag,
 		 * the algorithm as bad if this is not met.
 		 */
 		if ((vctx->ksk_algorithms[i] != 0) ==
+		    (vctx->zsk_algorithms[i] != 0))
+		{
+			continue;
+		}
+		// jg note: Allow for mismatched algorithms
+		if ((vctx->ksk_algorithms[i] != 0) ||
 		    (vctx->zsk_algorithms[i] != 0))
 		{
 			continue;

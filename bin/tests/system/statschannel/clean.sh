@@ -18,7 +18,6 @@ rm -f dig.out*
 rm -f nc.out* curl.out* header.in*
 rm -f ns*/managed-keys.bind*
 rm -f ns*/named.conf
-rm -f ns*/named.lock
 rm -f ns*/named.memstats
 rm -f ns*/named.run*
 rm -f ns*/named.stats
@@ -32,4 +31,5 @@ rm -f traffic traffic.out.* traffic.json.* traffic.xml.*
 rm -f xml.*mem json.*mem
 rm -f xml.*stats json.*stats
 rm -f zones zones.out.* zones.json.* zones.xml.* zones.expect.*
+rm -f xfrins xfrins.*
 rm -rf ./__pycache__

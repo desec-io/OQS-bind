@@ -157,10 +157,7 @@ dns_view_create(isc_mem_t *mctx, dns_dispatchmgr_t *dispatchmgr,
 		goto cleanup_order;
 	}
 
-	result = dns_aclenv_create(view->mctx, &view->aclenv);
-	if (result != ISC_R_SUCCESS) {
-		goto cleanup_peerlist;
-	}
+	dns_aclenv_create(view->mctx, &view->aclenv);
 
 	dns_nametree_create(view->mctx, DNS_NAMETREE_COUNT, "sfd", &view->sfd);
 
@@ -168,11 +165,6 @@ dns_view_create(isc_mem_t *mctx, dns_dispatchmgr_t *dispatchmgr,
 	*viewp = view;
 
 	return (ISC_R_SUCCESS);
-
-cleanup_peerlist:
-	if (view->peers != NULL) {
-		dns_peerlist_detach(&view->peers);
-	}
 
 cleanup_order:
 	if (view->order != NULL) {
@@ -271,8 +263,8 @@ destroy(dns_view_t *view) {
 
 	dns_rrl_view_destroy(view);
 	if (view->rpzs != NULL) {
-		dns_rpz_shutdown_rpzs(view->rpzs);
-		dns_rpz_detach_rpzs(&view->rpzs);
+		dns_rpz_zones_shutdown(view->rpzs);
+		dns_rpz_zones_detach(&view->rpzs);
 	}
 	if (view->catzs != NULL) {
 		dns_catz_zones_shutdown(view->catzs);
@@ -346,6 +338,12 @@ destroy(dns_view_t *view) {
 	}
 	if (view->pad_acl != NULL) {
 		dns_acl_detach(&view->pad_acl);
+	}
+	if (view->proxyacl != NULL) {
+		dns_acl_detach(&view->proxyacl);
+	}
+	if (view->proxyonacl != NULL) {
+		dns_acl_detach(&view->proxyonacl);
 	}
 	if (view->answeracl_exclude != NULL) {
 		dns_nametree_detach(&view->answeracl_exclude);
@@ -588,20 +586,20 @@ dns_view_weakdetach(dns_view_t **viewp) {
 }
 
 isc_result_t
-dns_view_createresolver(dns_view_t *view, isc_loopmgr_t *loopmgr,
-			unsigned int ndisp, isc_nm_t *netmgr,
+dns_view_createresolver(dns_view_t *view, isc_nm_t *netmgr,
 			unsigned int options, isc_tlsctx_cache_t *tlsctx_cache,
 			dns_dispatch_t *dispatchv4,
 			dns_dispatch_t *dispatchv6) {
 	isc_result_t result;
 	isc_mem_t *mctx = NULL;
+	isc_loopmgr_t *loopmgr = isc_loop_getloopmgr(isc_loop());
 
 	REQUIRE(DNS_VIEW_VALID(view));
 	REQUIRE(!view->frozen);
 	REQUIRE(view->resolver == NULL);
 	REQUIRE(view->dispatchmgr != NULL);
 
-	result = dns_resolver_create(view, loopmgr, ndisp, netmgr, options,
+	result = dns_resolver_create(view, loopmgr, netmgr, options,
 				     tlsctx_cache, dispatchv4, dispatchv6,
 				     &view->resolver);
 	if (result != ISC_R_SUCCESS) {
@@ -610,7 +608,7 @@ dns_view_createresolver(dns_view_t *view, isc_loopmgr_t *loopmgr,
 
 	isc_mem_create(&mctx);
 	isc_mem_setname(mctx, "ADB");
-	dns_adb_create(mctx, view, loopmgr, &view->adb);
+	dns_adb_create(mctx, view, &view->adb);
 	isc_mem_detach(&mctx);
 
 	result = dns_requestmgr_create(view->mctx, loopmgr, view->dispatchmgr,
@@ -937,29 +935,8 @@ db_find:
 		 */
 		result = ISC_R_NOTFOUND;
 	} else if (result == DNS_R_GLUE) {
-		if (view->cachedb != NULL && !is_staticstub_zone) {
-			/*
-			 * We found an answer, but the cache may be better.
-			 * Remember what we've got and go look in the cache.
-			 */
-			is_cache = true;
-			dns_rdataset_clone(rdataset, &zrdataset);
-			dns_rdataset_disassociate(rdataset);
-			if (sigrdataset != NULL &&
-			    dns_rdataset_isassociated(sigrdataset))
-			{
-				dns_rdataset_clone(sigrdataset, &zsigrdataset);
-				dns_rdataset_disassociate(sigrdataset);
-			}
-			dns_db_attach(db, &zdb);
-			dns_db_attachnode(zdb, node, &znode);
-			dns_db_detachnode(db, &node);
-			dns_db_detach(&db);
-			dns_db_attach(view->cachedb, &db);
-			goto db_find;
-		}
 		/*
-		 * Otherwise, the glue is the best answer.
+		 * Glue is the answer wanted.
 		 */
 		result = ISC_R_SUCCESS;
 	}

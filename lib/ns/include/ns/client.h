@@ -146,6 +146,9 @@ struct ns_clientmgr {
 
 	isc_mem_t     *mctx;
 	isc_mem_t     *send_mctx;
+	isc_mempool_t *namepool;
+	isc_mempool_t *rdspool;
+
 	ns_server_t   *sctx;
 	isc_refcount_t references;
 	uint32_t       tid;
@@ -167,11 +170,12 @@ struct ns_client {
 	unsigned int	 attributes;
 	dns_view_t	*view;
 	dns_dispatch_t	*dispatch;
-	isc_nmhandle_t	*handle;      /* Permanent pointer to handle */
-	isc_nmhandle_t	*sendhandle;  /* Waiting for send callback */
-	isc_nmhandle_t	*reqhandle;   /* Waiting for request callback
-					 (query, update, notify) */
-	isc_nmhandle_t *updatehandle; /* Waiting for update callback */
+	isc_nmhandle_t	*handle;       /* Permanent pointer to handle */
+	isc_nmhandle_t	*sendhandle;   /* Waiting for send callback */
+	isc_nmhandle_t	*reqhandle;    /* Waiting for request callback
+					  (query, update, notify) */
+	isc_nmhandle_t *updatehandle;  /* Waiting for update callback */
+	isc_nmhandle_t *restarthandle; /* Waiting for restart callback */
 	unsigned char  *tcpbuf;
 	size_t		tcpbuf_size;
 	dns_message_t  *message;

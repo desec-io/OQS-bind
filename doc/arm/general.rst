@@ -285,6 +285,9 @@ Parent via CDS/CDNSKEY.* March 2017. [#rfc8078]_
 :rfc:`8484` - P. Hoffman and P. McManus. *DNS Queries over HTTPS (DoH).*
 October 2018. [#noencryptedfwd]_
 
+:rfc:`8509` - G. Huston, J. Damas, W. Kumari. *A Root Key Trust Anchor Sentinel
+for DNSSEC.* December 2018.
+
 :rfc:`8624` - P. Wouters and O. Sury. *Algorithm Implementation Requirements
 and Usage Guidance for DNSSEC.* June 2019.
 
@@ -302,6 +305,13 @@ November 2020.
 
 :rfc:`9103` - W. Toorop, S. Dickinson, S. Sahib, P. Aras, and A. Mankin.
 *DNS Zone Transfer over TLS.* August 2021. [#rfc9103]_
+
+:rfc:`9432` - P. van Dijk, L. Peltan, O. Sury, W. Toorop, C.R. Monshouwer,
+P. Thomassen, A. Sargsyan. *DNS Catalog Zones.* July 2023.
+
+:rfc:`9460` - B. Schwartz, M. Bishop and E. Nygren, *Service Binding and
+Parameter Specification via the DNS (SVCB and HTTPS Resource Records).*
+November 2023.
 
 Best Current Practice RFCs
 --------------------------
@@ -327,6 +337,8 @@ Locally-Served DNS Zones Registry.* May 2016.
 
 :rfc:`8906` - M. Andrews and R. Bellis. *A Common Operational Problem in DNS
 Servers: Failure to Communicate.* September 2020.
+
+:rfc:`9276` - W. Hardaker and V. Dukhovni. *Guidance for NSEC3 Parameter Settings.* August 2022.
 
 For Your Information
 --------------------
@@ -441,6 +453,9 @@ Notes
 
 .. [#rfc9103] Strict TLS and Mutual TLS authentication mechanisms are
    not supported yet.
+
+.. [#rfc9460] Additional section processing is not supported for HTTPS and
+   SVCB records.
 
 .. _internet_drafts:
 

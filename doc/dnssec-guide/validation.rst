@@ -405,6 +405,10 @@ When set to *auto*, BIND automatically keeps the keys (also known as
 trust anchors, discussed in :ref:`trust_anchors_description`)
 up-to-date without intervention from the DNS administrator.
 
+When using *yes*, please note that if :any:`trust-anchors` does not include a
+valid root key, then validation does not take place for names which are not
+covered by any of the configured trust anchors.
+
 We recommend using the default *auto* unless there is a good reason to
 require a manual trust anchor. To learn more about trust anchors,
 please refer to :ref:`trusted_keys_and_managed_keys`.
@@ -706,7 +710,7 @@ database (``managed-keys.bind.jnl``) as the source of key information.
 
 Explicit management of keys was common in the early days of DNSSEC, when
 neither the root zone nor many top-level domains were signed. Since
-then, `over 90% <https://stats.research.icann.org/dns/tld_report/>`__ of
+then, `over 90% <https://ithi.research.icann.org/graph-m7.html>`__ of
 the top-level domains have been signed, including all the largest ones.
 Unless you have a particular need to manage keys yourself, it is best to
 use the BIND defaults and let the software manage the root key.

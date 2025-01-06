@@ -100,6 +100,7 @@ typedef enum dst_algorithm {
 	DST_ALG_SPHINCSSHA256128S = 19,
 	DST_ALG_XMSS = 20,
 	DST_ALG_XMSSMT = 21,
+	DST_ALG_MERKLE_TREE = 22,
 
 	/*
 	 * Do not renumber HMAC algorithms as they are used externally to named
@@ -229,6 +230,17 @@ bool
 dst_algorithm_supported(unsigned int alg);
 /*%<
  * Checks that a given algorithm is supported by DST.
+ *
+ * Returns:
+ * \li	true
+ * \li	false
+ */
+
+bool
+dst_algorithm_is_deferred_signing(const int alg);
+/*%<
+ * Checks that a given algorithm is a deferred signing
+ * algorithm.
  *
  * Returns:
  * \li	true
@@ -487,6 +499,10 @@ dst_key_tofile(const dst_key_t *key, int type, const char *directory);
  */
 
 isc_result_t
+dst_key_fromdns_ex(const dns_name_t *name, dns_rdataclass_t rdclass,
+		   isc_buffer_t *source, isc_mem_t *mctx, bool no_rdata,
+		   dst_key_t **keyp);
+isc_result_t
 dst_key_fromdns(const dns_name_t *name, dns_rdataclass_t rdclass,
 		isc_buffer_t *source, isc_mem_t *mctx, dst_key_t **keyp);
 /*%<
@@ -634,8 +650,8 @@ dst_key_fromlabel(const dns_name_t *name, int alg, unsigned int flags,
 isc_result_t
 dst_key_generate(const dns_name_t *name, unsigned int alg, unsigned int bits,
 		 unsigned int param, unsigned int flags, unsigned int protocol,
-		 dns_rdataclass_t rdclass, isc_mem_t *mctx, dst_key_t **keyp,
-		 void (*callback)(int));
+		 dns_rdataclass_t rdclass, const char *label, isc_mem_t *mctx,
+		 dst_key_t **keyp, void (*callback)(int));
 
 /*%<
  * Generate a DST key (or keypair) with the supplied parameters.  The
@@ -662,6 +678,49 @@ dst_key_generate(const dns_name_t *name, unsigned int alg, unsigned int bits,
  *\li	If successful, *keyp will contain a valid key.
  */
 
+bool
+dst_key_is_deferred_signing(const dst_key_t *key);
+
+/*%<
+ * Indicates if the key is using an algorithm that requires
+ * deferring signing.
+ *
+ * Requires:
+ *\li	"key" is a valid dst_key.
+ *
+ * Returns:
+ *\li 	true 
+ * \li	false
+ */
+
+isc_result_t
+dst_key_finalize(dst_key_t *key);
+
+/*%<
+ * Finalizes given deferred signing key.
+ *
+ * Requires:
+ *\li	"key" is a valid deferred signing dst_key.
+ *
+ * Returns:
+ *\li 	ISC_R_SUCCESS
+ * \li	all other returns indicate failure
+ */
+
+isc_result_t
+dst_key_signature_finalize(const dst_key_t *key, isc_buffer_t *databuf, dns_rdata_t *intsig, dns_rdata_t *finalsig);
+
+/*%<
+ * Finalizes given intemediate signature and produces a final signature.
+ *
+ * Requires:
+ *\li	"key" is a valid deferred signing dst_key.
+ *\li	"intsig" is a valid deferred signing intemediate signature.
+ *
+ * Returns:
+ *\li 	ISC_R_SUCCESS
+ * \li	all other returns indicate failure
+ */
 bool
 dst_key_compare(const dst_key_t *key1, const dst_key_t *key2);
 /*%<
@@ -769,6 +828,9 @@ dst_key_rid(const dst_key_t *key);
 
 dns_rdataclass_t
 dst_key_class(const dst_key_t *key);
+
+const char *
+dst_key_directory(const dst_key_t *key);
 
 bool
 dst_key_isprivate(const dst_key_t *key);
@@ -1236,6 +1298,15 @@ dst_key_copy_metadata(dst_key_t *to, dst_key_t *from);
  *
  * Requires:
  *	'to' and 'from' to be valid.
+ */
+
+void
+dst_key_setdirectory(dst_key_t *key, const char *dir);
+/*%<
+ * Set the directory where to store key files for this key.
+ *
+ * Requires:
+ *	'key' to be valid.
  */
 
 const char *

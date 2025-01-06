@@ -65,6 +65,7 @@ struct named_server {
 	dns_zonemgr_t	  *zonemgr;
 	dns_viewlist_t	   viewlist;
 	dns_kasplist_t	   kasplist;
+	dns_keystorelist_t keystorelist;
 	ns_interfacemgr_t *interfacemgr;
 	dns_db_t	  *in_roothints;
 
@@ -102,8 +103,6 @@ struct named_server {
 	ns_cookiealg_t cookiealg;
 
 	dns_dtenv_t *dtenv; /*%< Dnstap environment */
-
-	char *lockfile;
 
 	isc_tlsctx_cache_t *tlsctx_server_cache;
 	isc_tlsctx_cache_t *tlsctx_client_cache;

@@ -50,7 +50,6 @@
 
 EXTERN isc_mem_t *named_g_mctx		      INIT(NULL);
 EXTERN unsigned int named_g_cpus	      INIT(0);
-EXTERN unsigned int named_g_udpdisp	      INIT(0);
 EXTERN isc_loop_t *named_g_mainloop	      INIT(NULL);
 EXTERN isc_loopmgr_t *named_g_loopmgr	      INIT(NULL);
 EXTERN bool named_g_loopmgr_running	      INIT(false);
@@ -119,11 +118,6 @@ EXTERN const char *named_g_logfile   INIT(NULL);
 EXTERN const char *named_g_defaultsessionkeyfile INIT(NAMED_LOCALSTATEDIR
 						      "/run/named/"
 						      "session.key");
-EXTERN const char *named_g_defaultlockfile INIT(NAMED_LOCALSTATEDIR "/run/"
-								    "named/"
-								    "named."
-								    "lock");
-EXTERN bool named_g_forcelock		   INIT(false);
 
 #if NAMED_RUN_PID_DIR
 EXTERN const char *named_g_defaultpidfile INIT(NAMED_LOCALSTATEDIR "/run/named/"

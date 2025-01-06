@@ -24,6 +24,8 @@ options {
 	notify yes;
 };
 
+trust-anchors { };
+
 statistics-channels {
 	inet 10.53.0.2 port @EXTRAPORT1@ allow { any; };
 };
@@ -40,7 +42,7 @@ controls {
 
 zone "." {
 	type hint;
-	file "../../common/root.hint";
+	file "../../_common/root.hint";
 };
 
 zone "example" {

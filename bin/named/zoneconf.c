@@ -866,8 +866,8 @@ process_notifytype(dns_notifytype_t ntype, dns_zonetype_t ztype,
 isc_result_t
 named_zone_configure(const cfg_obj_t *config, const cfg_obj_t *vconfig,
 		     const cfg_obj_t *zconfig, cfg_aclconfctx_t *ac,
-		     dns_kasplist_t *kasplist, dns_zone_t *zone,
-		     dns_zone_t *raw) {
+		     dns_kasplist_t *kasplist, dns_keystorelist_t *keystorelist,
+		     dns_zone_t *zone, dns_zone_t *raw) {
 	isc_result_t result;
 	const char *zname;
 	dns_rdataclass_t zclass;
@@ -885,7 +885,7 @@ named_zone_configure(const cfg_obj_t *config, const cfg_obj_t *vconfig,
 	uint32_t count;
 	unsigned int dbargc;
 	char **dbargv;
-	static char default_dbtype[] = "rbt";
+	static char default_dbtype[] = ZONEDB_DEFAULT;
 	static char dlz_dbtype[] = "dlz";
 	char *cpval = default_dbtype;
 	isc_mem_t *mctx = dns_zone_getmctx(zone);
@@ -1576,6 +1576,8 @@ named_zone_configure(const cfg_obj_t *config, const cfg_obj_t *vconfig,
 			filename = cfg_obj_asstring(obj);
 			CHECK(dns_zone_setkeydirectory(zone, filename));
 		}
+		/* Also save a reference to the keystore list. */
+		dns_zone_setkeystores(zone, keystorelist);
 
 		obj = NULL;
 		result = named_config_get(maps, "sig-signing-signatures", &obj);
@@ -2014,13 +2016,7 @@ named_zone_inlinesigning(const cfg_obj_t *zconfig, const cfg_obj_t *vconfig,
 	}
 	maps[i] = NULL;
 
-	/* "inline-signing" is a zone-only clause, so look in maps[0] only. */
-	res = cfg_map_get(maps[0], "inline-signing", &signing);
-	if (res == ISC_R_SUCCESS && cfg_obj_isboolean(signing)) {
-		return (cfg_obj_asboolean(signing));
-	}
-
-	/* If inline-signing is not set, check the value in dnssec-policy. */
+	/* Check the value in dnssec-policy. */
 	policy = NULL;
 	res = named_config_get(maps, "dnssec-policy", &policy);
 	/* If no dnssec-policy found, then zone is not using inline-signing. */
@@ -2038,6 +2034,16 @@ named_zone_inlinesigning(const cfg_obj_t *zconfig, const cfg_obj_t *vconfig,
 
 	inline_signing = dns_kasp_inlinesigning(kasp);
 	dns_kasp_detach(&kasp);
+
+	/*
+	 * The zone option 'inline-signing' may override the value in
+	 * dnssec-policy. This is a zone-only option, so look in maps[0]
+	 * only.
+	 */
+	res = cfg_map_get(maps[0], "inline-signing", &signing);
+	if (res == ISC_R_SUCCESS && cfg_obj_isboolean(signing)) {
+		return (cfg_obj_asboolean(signing));
+	}
 
 	return (inline_signing);
 }

@@ -80,14 +80,10 @@
 
 #ifdef __OpenBSD__
 #define USE_SYSCTL_PORTRANGE
-#define SYSCTL_V4PORTRANGE_LOW                                         \
-	{                                                              \
-		CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HIFIRSTAUTO \
-	}
-#define SYSCTL_V4PORTRANGE_HIGH                                       \
-	{                                                             \
-		CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HILASTAUTO \
-	}
+#define SYSCTL_V4PORTRANGE_LOW \
+	{ CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HIFIRSTAUTO }
+#define SYSCTL_V4PORTRANGE_HIGH \
+	{ CTL_NET, PF_INET, IPPROTO_IP, IPCTL_IPPORT_HILASTAUTO }
 /* Same for IPv6 */
 #define SYSCTL_V6PORTRANGE_LOW	SYSCTL_V4PORTRANGE_LOW
 #define SYSCTL_V6PORTRANGE_HIGH SYSCTL_V4PORTRANGE_HIGH
@@ -112,7 +108,6 @@ static isc_once_t once = ISC_ONCE_INIT;
 
 static isc_result_t ipv4_result = ISC_R_NOTFOUND;
 static isc_result_t ipv6_result = ISC_R_NOTFOUND;
-static isc_result_t unix_result = ISC_R_NOTFOUND;
 static isc_result_t ipv6only_result = ISC_R_NOTFOUND;
 static isc_result_t ipv6pktinfo_result = ISC_R_NOTFOUND;
 
@@ -188,7 +183,6 @@ static void
 initialize_action(void) {
 	ipv4_result = try_proto(PF_INET);
 	ipv6_result = try_proto(PF_INET6);
-	unix_result = try_proto(PF_UNIX);
 }
 
 static void
@@ -206,12 +200,6 @@ isc_result_t
 isc_net_probeipv6(void) {
 	initialize();
 	return (ipv6_result);
-}
-
-isc_result_t
-isc_net_probeunix(void) {
-	initialize();
-	return (unix_result);
 }
 
 static void

@@ -48,7 +48,7 @@ view rec {
 
 	zone "." {
 		type hint;
-		file "../../common/root.hint";
+		file "../../_common/root.hint";
 	};
 
 	zone secure.example {
@@ -65,6 +65,11 @@ view rec {
 view auth {
 	recursion no;
 	allow-recursion { none; };
+
+	zone "." {
+		type hint;
+		file "../../_common/root.hint";
+	};
 
 	zone secure.example {
 		type secondary;

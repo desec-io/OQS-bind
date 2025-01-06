@@ -138,7 +138,7 @@ char keyfile[MXNAME] = "";
 char keysecret[MXNAME] = "";
 unsigned char cookie_secret[33];
 unsigned char cookie[8];
-dst_algorithm_t hmac = DST_ALG_UNKNOWN;
+dst_algorithm_t hmac_alg = DST_ALG_UNKNOWN;
 unsigned int digestbits = 0;
 isc_buffer_t *namebuf = NULL;
 dns_tsigkey_t *tsigkey = NULL;
@@ -359,8 +359,6 @@ get_reverse(char *reverse, size_t len, char *value, bool strict) {
 	}
 }
 
-void (*dighost_pre_exit_hook)(void) = NULL;
-
 #if TARGET_OS_IPHONE
 void
 warn(const char *format, ...) {
@@ -393,10 +391,7 @@ digexit(void) {
 		exitcode = 10;
 	}
 	if (fatalexit != 0) {
-		exitcode = fatalexit;
-	}
-	if (dighost_pre_exit_hook != NULL) {
-		dighost_pre_exit_hook();
+		_exit(fatalexit);
 	}
 	exit(exitcode);
 }
@@ -411,7 +406,11 @@ fatal(const char *format, ...) {
 	vfprintf(stderr, format, args);
 	va_end(args);
 	fprintf(stderr, "\n");
-	isc__tls_setfatalmode();
+	if (fatalexit == 0 && exitcode != 0) {
+		fatalexit = exitcode;
+	} else if (fatalexit == 0) {
+		fatalexit = EXIT_FAILURE;
+	}
 	digexit();
 }
 
@@ -794,6 +793,11 @@ clone_lookup(dig_lookup_t *lookold, bool servers) {
 	looknew->rrcomments = lookold->rrcomments;
 	looknew->fuzzing = lookold->fuzzing;
 	looknew->fuzztime = lookold->fuzztime;
+	looknew->proxy_mode = lookold->proxy_mode;
+	looknew->proxy_plain = lookold->proxy_plain;
+	looknew->proxy_local = lookold->proxy_local;
+	looknew->proxy_src_addr = lookold->proxy_src_addr;
+	looknew->proxy_dst_addr = lookold->proxy_dst_addr;
 
 	if (lookold->ecs_addr != NULL) {
 		looknew->ecs_addr = isc_mem_get(mctx,
@@ -874,7 +878,7 @@ setup_text_key(void) {
 
 	secretsize = isc_buffer_usedlength(&secretbuf);
 
-	if (hmac == DST_ALG_UNKNOWN) {
+	if (hmac_alg == DST_ALG_UNKNOWN) {
 		result = DST_R_UNSUPPORTEDALG;
 		goto failure;
 	}
@@ -884,7 +888,7 @@ setup_text_key(void) {
 		goto failure;
 	}
 
-	result = dns_tsigkey_create(&keyname, hmac, secretstore,
+	result = dns_tsigkey_create(&keyname, hmac_alg, secretstore,
 				    (int)secretsize, mctx, &tsigkey);
 failure:
 	if (result != ISC_R_SUCCESS) {
@@ -1036,35 +1040,35 @@ parse_hmac(const char *algname) {
 	digestbits = 0;
 
 	if (strcasecmp(buf, "hmac-md5") == 0) {
-		hmac = DST_ALG_HMACMD5;
+		hmac_alg = DST_ALG_HMACMD5;
 	} else if (strncasecmp(buf, "hmac-md5-", 9) == 0) {
-		hmac = DST_ALG_HMACMD5;
+		hmac_alg = DST_ALG_HMACMD5;
 		digestbits = parse_bits(&buf[9], "digest-bits [0..128]", 128);
 	} else if (strcasecmp(buf, "hmac-sha1") == 0) {
-		hmac = DST_ALG_HMACSHA1;
+		hmac_alg = DST_ALG_HMACSHA1;
 		digestbits = 0;
 	} else if (strncasecmp(buf, "hmac-sha1-", 10) == 0) {
-		hmac = DST_ALG_HMACSHA1;
+		hmac_alg = DST_ALG_HMACSHA1;
 		digestbits = parse_bits(&buf[10], "digest-bits [0..160]", 160);
 	} else if (strcasecmp(buf, "hmac-sha224") == 0) {
-		hmac = DST_ALG_HMACSHA224;
+		hmac_alg = DST_ALG_HMACSHA224;
 	} else if (strncasecmp(buf, "hmac-sha224-", 12) == 0) {
-		hmac = DST_ALG_HMACSHA224;
+		hmac_alg = DST_ALG_HMACSHA224;
 		digestbits = parse_bits(&buf[12], "digest-bits [0..224]", 224);
 	} else if (strcasecmp(buf, "hmac-sha256") == 0) {
-		hmac = DST_ALG_HMACSHA256;
+		hmac_alg = DST_ALG_HMACSHA256;
 	} else if (strncasecmp(buf, "hmac-sha256-", 12) == 0) {
-		hmac = DST_ALG_HMACSHA256;
+		hmac_alg = DST_ALG_HMACSHA256;
 		digestbits = parse_bits(&buf[12], "digest-bits [0..256]", 256);
 	} else if (strcasecmp(buf, "hmac-sha384") == 0) {
-		hmac = DST_ALG_HMACSHA384;
+		hmac_alg = DST_ALG_HMACSHA384;
 	} else if (strncasecmp(buf, "hmac-sha384-", 12) == 0) {
-		hmac = DST_ALG_HMACSHA384;
+		hmac_alg = DST_ALG_HMACSHA384;
 		digestbits = parse_bits(&buf[12], "digest-bits [0..384]", 384);
 	} else if (strcasecmp(buf, "hmac-sha512") == 0) {
-		hmac = DST_ALG_HMACSHA512;
+		hmac_alg = DST_ALG_HMACSHA512;
 	} else if (strncasecmp(buf, "hmac-sha512-", 12) == 0) {
-		hmac = DST_ALG_HMACSHA512;
+		hmac_alg = DST_ALG_HMACSHA512;
 		digestbits = parse_bits(&buf[12], "digest-bits [0..512]", 512);
 	} else {
 		fprintf(stderr,
@@ -1170,7 +1174,7 @@ setup_file_key(void) {
 	case DST_ALG_HMACSHA256:
 	case DST_ALG_HMACSHA384:
 	case DST_ALG_HMACSHA512:
-		hmac = dst_key_alg(dstkey);
+		hmac_alg = dst_key_alg(dstkey);
 		break;
 	default:
 		dst_key_attach(dstkey, &sig0key);
@@ -1179,9 +1183,9 @@ setup_file_key(void) {
 	}
 
 	if (dstkey != NULL) {
-		result = dns_tsigkey_createfromkey(dst_key_name(dstkey), hmac,
-						   dstkey, false, false, NULL,
-						   0, 0, mctx, &tsigkey);
+		result = dns_tsigkey_createfromkey(
+			dst_key_name(dstkey), hmac_alg, dstkey, false, false,
+			NULL, 0, 0, mctx, &tsigkey);
 		if (result != ISC_R_SUCCESS) {
 			printf(";; Couldn't create key %s: %s\n", keynametext,
 			       isc_result_totext(result));
@@ -1383,6 +1387,7 @@ typedef struct dig_ednsoptname {
 
 dig_ednsoptname_t optnames[] = {
 	{ 1, "LLQ" },	       /* draft-sekar-dns-llq */
+	{ 2, "UL" },	       /* draft-ietf-dnssd-update-lease */
 	{ 3, "NSID" },	       /* RFC 5001 */
 	{ 5, "DAU" },	       /* RFC 6975 */
 	{ 6, "DHU" },	       /* RFC 6975 */
@@ -2192,7 +2197,8 @@ setup_lookup(dig_lookup_t *lookup) {
 
 	debug("setup_lookup(%p)", lookup);
 
-	dns_message_create(mctx, DNS_MESSAGE_INTENTRENDER, &lookup->sendmsg);
+	dns_message_create(mctx, NULL, NULL, DNS_MESSAGE_INTENTRENDER,
+			   &lookup->sendmsg);
 
 	if (lookup->new_search) {
 		debug("resetting lookup counter.");
@@ -2920,6 +2926,9 @@ start_tcp(dig_query_t *query) {
 	bool tls_mode = false;
 	isc_tlsctx_client_session_cache_t *sess_cache = NULL;
 	int local_timeout;
+	isc_nm_proxy_type_t proxy_type = ISC_NM_PROXY_NONE;
+	isc_nm_proxyheader_info_t proxy_info = { 0 };
+	isc_nm_proxyheader_info_t *ppi = NULL;
 
 	REQUIRE(DIG_VALID_QUERY(query));
 
@@ -3011,6 +3020,22 @@ start_tcp(dig_query_t *query) {
 		}
 	}
 
+	if (query->lookup->proxy_mode) {
+		proxy_type = ISC_NM_PROXY_PLAIN;
+		if ((tls_mode || (query->lookup->https_mode &&
+				  !query->lookup->http_plain)) &&
+		    !query->lookup->proxy_plain)
+		{
+			proxy_type = ISC_NM_PROXY_ENCRYPTED;
+		}
+		if (!query->lookup->proxy_local) {
+			isc_nm_proxyheader_info_init(
+				&proxy_info, &query->lookup->proxy_src_addr,
+				&query->lookup->proxy_dst_addr, NULL);
+			ppi = &proxy_info;
+		}
+	}
+
 	REQUIRE(query != NULL);
 
 	query_attach(query, &connectquery);
@@ -3023,7 +3048,8 @@ start_tcp(dig_query_t *query) {
 		}
 		isc_nm_streamdnsconnect(netmgr, &localaddr, &query->sockaddr,
 					tcp_connected, connectquery,
-					local_timeout, tlsctx, sess_cache);
+					local_timeout, tlsctx, sess_cache,
+					proxy_type, ppi);
 #if HAVE_LIBNGHTTP2
 	} else if (query->lookup->https_mode) {
 		char uri[4096] = { 0 };
@@ -3043,12 +3069,13 @@ start_tcp(dig_query_t *query) {
 		isc_nm_httpconnect(netmgr, &localaddr, &query->sockaddr, uri,
 				   !query->lookup->https_get, tcp_connected,
 				   connectquery, tlsctx, sess_cache,
-				   local_timeout);
+				   local_timeout, proxy_type, ppi);
 #endif
 	} else {
 		isc_nm_streamdnsconnect(netmgr, &localaddr, &query->sockaddr,
 					tcp_connected, connectquery,
-					local_timeout, NULL, NULL);
+					local_timeout, NULL, NULL, proxy_type,
+					ppi);
 	}
 
 	return;
@@ -3204,6 +3231,7 @@ udp_ready(isc_nmhandle_t *handle, isc_result_t eresult, void *arg) {
 			start_udp(next);
 			check_if_done();
 		} else {
+			dighost_error("no servers could be reached\n");
 			clear_current_lookup();
 		}
 
@@ -3297,9 +3325,24 @@ start_udp(dig_query_t *query) {
 	}
 
 	query_attach(query, &connectquery);
-	isc_nm_udpconnect(netmgr, &localaddr, &query->sockaddr, udp_ready,
-			  connectquery,
-			  (timeout ? timeout : UDP_TIMEOUT) * 1000);
+	if (query->lookup->proxy_mode) {
+		isc_nm_proxyheader_info_t proxy_info = { 0 };
+		isc_nm_proxyheader_info_t *ppi = NULL;
+		if (!query->lookup->proxy_local) {
+			isc_nm_proxyheader_info_init(
+				&proxy_info, &query->lookup->proxy_src_addr,
+				&query->lookup->proxy_dst_addr, NULL);
+			ppi = &proxy_info;
+		}
+		isc_nm_proxyudpconnect(netmgr, &localaddr, &query->sockaddr,
+				       udp_ready, connectquery,
+				       (timeout ? timeout : UDP_TIMEOUT) * 1000,
+				       ppi);
+	} else {
+		isc_nm_udpconnect(netmgr, &localaddr, &query->sockaddr,
+				  udp_ready, connectquery,
+				  (timeout ? timeout : UDP_TIMEOUT) * 1000);
+	}
 }
 
 /*%
@@ -3523,6 +3566,12 @@ tcp_connected(isc_nmhandle_t *handle, isc_result_t eresult, void *arg) {
 	debug("tcp_connected(%p, %s, %p)", handle, isc_result_totext(eresult),
 	      query);
 
+	if (eresult == ISC_R_SHUTTINGDOWN) {
+		query_detach(&query);
+		cancel_all();
+		return;
+	}
+
 	lookup_attach(query->lookup, &l);
 
 	if (eresult == ISC_R_CANCELED || eresult == ISC_R_TLSBADPEERCERT ||
@@ -3601,6 +3650,7 @@ tcp_connected(isc_nmhandle_t *handle, isc_result_t eresult, void *arg) {
 			start_tcp(next);
 			check_if_done();
 		} else {
+			dighost_error("no servers could be reached\n");
 			clear_current_lookup();
 		}
 
@@ -3907,7 +3957,9 @@ recv_done(isc_nmhandle_t *handle, isc_result_t eresult, isc_region_t *region,
 	{
 		debug("recv_done: cancel");
 		isc_nmhandle_detach(&query->readhandle);
-		if (!query->canceled) {
+		if (eresult == ISC_R_SHUTTINGDOWN) {
+			cancel_all();
+		} else if (!query->canceled) {
 			cancel_lookup(l);
 		}
 		query_detach(&query);
@@ -4124,7 +4176,7 @@ recv_done(isc_nmhandle_t *handle, isc_result_t eresult, isc_region_t *region,
 		goto keep_query;
 	}
 
-	dns_message_create(mctx, DNS_MESSAGE_INTENTPARSE, &msg);
+	dns_message_create(mctx, NULL, NULL, DNS_MESSAGE_INTENTPARSE, &msg);
 
 	if (tsigkey != NULL) {
 		if (l->querysig == NULL) {
@@ -4302,29 +4354,32 @@ recv_done(isc_nmhandle_t *handle, isc_result_t eresult, isc_region_t *region,
 	if ((msg->rcode == dns_rcode_servfail && !l->servfail_stops) ||
 	    (check_ra && (msg->flags & DNS_MESSAGEFLAG_RA) == 0 && l->recurse))
 	{
+		const char *err = (msg->rcode == dns_rcode_servfail &&
+				   !l->servfail_stops)
+					  ? "SERVFAIL reply"
+					  : "recursion not available";
 		dig_query_t *next = ISC_LIST_NEXT(query, link);
 		if (l->current_query == query) {
 			query_detach(&l->current_query);
 		}
-		if (next != NULL) {
+		if (next != NULL && (!l->ns_search_only || l->trace_root)) {
+			dighost_comments(l,
+					 "Got %s from %s, trying next server",
+					 err, query->servname);
 			debug("sending query %p", next);
 			if (l->tcp_mode) {
 				start_tcp(next);
 			} else {
 				start_udp(next);
 			}
-			dighost_comments(l,
-					 "Got %s from %s, trying next "
-					 "server",
-					 msg->rcode == dns_rcode_servfail
-						 ? "SERVFAIL reply"
-						 : "recursion not available",
-					 query->servname);
 			if (check_if_queries_done(l, query)) {
 				goto cancel_lookup;
 			}
 
 			goto detach_query;
+		} else {
+			dighost_comments(l, "Got %s from %s", err,
+					 query->servname);
 		}
 	}
 

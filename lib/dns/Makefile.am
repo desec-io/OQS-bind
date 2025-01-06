@@ -83,6 +83,7 @@ libdns_la_HEADERS =			\
 	include/dns/keydata.h		\
 	include/dns/keyflags.h		\
 	include/dns/keymgr.h		\
+	include/dns/keystore.h		\
 	include/dns/keytable.h		\
 	include/dns/keyvalues.h		\
 	include/dns/librpz.h		\
@@ -125,10 +126,9 @@ libdns_la_HEADERS =			\
 	include/dns/ssu.h		\
 	include/dns/stats.h		\
 	include/dns/time.h		\
-	include/dns/trace.h		\
-	include/dns/transport.h		\
 	include/dns/tkey.h		\
 	include/dns/trace.h		\
+	include/dns/transport.h		\
 	include/dns/tsig.h		\
 	include/dns/ttl.h		\
 	include/dns/types.h		\
@@ -166,6 +166,7 @@ libdns_la_SOURCES =			\
 	clientinfo.c			\
 	compress.c			\
 	db.c				\
+	db_p.h				\
 	dbiterator.c			\
 	diff.c				\
 	dispatch.c			\
@@ -192,7 +193,9 @@ libdns_la_SOURCES =			\
 	key.c				\
 	keydata.c			\
 	keymgr.c			\
+	keystore.c			\
 	keytable.c			\
+	liboqsstateful_link.c           \
 	log.c				\
 	master.c			\
 	masterdump.c			\
@@ -203,7 +206,6 @@ libdns_la_SOURCES =			\
 	nsec.c				\
 	nsec3.c				\
 	nta.c				\
-	liboqsstateful_link.c           \
 	openssl_link.c			\
 	openssl_shim.c			\
 	openssl_shim.h			\
@@ -217,11 +219,15 @@ libdns_la_SOURCES =			\
 	probes.d			\
 	qp.c				\
 	qp_p.h				\
+	qpzone_p.h			\
+	qpzone.c			\
 	rbt.c				\
 	rbt-cachedb.c			\
 	rbt-zonedb.c			\
-	rbtdb_p.h			\
 	rbtdb.c				\
+	rbtdb_p.h			\
+	qpcache.c				\
+	qpcache_p.h			\
 	rcode.c				\
 	rdata.c				\
 	rdatalist.c			\
@@ -237,6 +243,7 @@ libdns_la_SOURCES =			\
 	rpz.c				\
 	rrl.c				\
 	rriterator.c			\
+	saqmerklestream_link.c		\
 	sdlz.c				\
 	soa.c				\
 	ssu.c				\
@@ -273,6 +280,7 @@ libdns_la_CPPFLAGS =		\
 	$(AM_CPPFLAGS)		\
 	$(LIBDNS_CFLAGS)	\
 	$(LIBISC_CFLAGS)	\
+	$(LIBSAQ_CFLAGS)	\
 	$(LIBURCU_CFLAGS)	\
 	$(LIBUV_CFLAGS)		\
 	$(OPENSSL_CFLAGS)
@@ -283,6 +291,7 @@ libdns_la_LDFLAGS =		\
 
 libdns_la_LIBADD =		\
 	$(LIBISC_LIBS)		\
+	$(LIBSAQ_LIBS)		\
 	$(LIBURCU_LIBS)		\
 	$(LIBUV_LIBS)		\
 	$(OPENSSL_LIBS)

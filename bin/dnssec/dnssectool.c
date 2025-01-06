@@ -20,6 +20,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <isc/base32.h>
 #include <isc/buffer.h>
@@ -83,8 +84,7 @@ fatal(const char *format, ...) {
 	if (fatalcallback != NULL) {
 		(*fatalcallback)();
 	}
-	isc__tls_setfatalmode();
-	exit(1);
+	_exit(EXIT_FAILURE);
 }
 
 void
@@ -114,7 +114,7 @@ vbprintf(int level, const char *fmt, ...) {
 void
 version(const char *name) {
 	printf("%s %s\n", name, PACKAGE_VERSION);
-	exit(0);
+	exit(EXIT_SUCCESS);
 }
 
 void
@@ -498,7 +498,8 @@ key_collision(dst_key_t *dstkey, dns_name_t *name, const char *dir,
 	alg = dst_key_alg(dstkey);
 
 	ISC_LIST_INIT(matchkeys);
-	result = dns_dnssec_findmatchingkeys(name, dir, now, mctx, &matchkeys);
+	result = dns_dnssec_findmatchingkeys(name, NULL, dir, NULL, now, mctx,
+					     &matchkeys);
 	if (result == ISC_R_NOTFOUND) {
 		return (false);
 	}
@@ -599,4 +600,89 @@ loadjournal(isc_mem_t *mctx, dns_db_t *db, const char *file) {
 
 cleanup:
 	dns_journal_destroy(&jnl);
+}
+
+void
+kasp_from_conf(cfg_obj_t *config, isc_mem_t *mctx, isc_log_t *lctx,
+	       const char *name, const char *keydir, const char *engine,
+	       dns_kasp_t **kaspp) {
+	isc_result_t result = ISC_R_NOTFOUND;
+	const cfg_listelt_t *element;
+	const cfg_obj_t *kasps = NULL;
+	dns_kasp_t *kasp = NULL, *kasp_next;
+	dns_kasplist_t kasplist;
+	const cfg_obj_t *keystores = NULL;
+	dns_keystore_t *ks = NULL, *ks_next;
+	dns_keystorelist_t kslist;
+
+	ISC_LIST_INIT(kasplist);
+	ISC_LIST_INIT(kslist);
+
+	(void)cfg_map_get(config, "key-store", &keystores);
+	for (element = cfg_list_first(keystores); element != NULL;
+	     element = cfg_list_next(element))
+	{
+		cfg_obj_t *kconfig = cfg_listelt_value(element);
+		ks = NULL;
+		result = cfg_keystore_fromconfig(kconfig, mctx, lctx, engine,
+						 &kslist, NULL);
+		if (result != ISC_R_SUCCESS) {
+			fatal("failed to configure key-store '%s': %s",
+			      cfg_obj_asstring(cfg_tuple_get(kconfig, "name")),
+			      isc_result_totext(result));
+		}
+	}
+	/* Default key-directory key store. */
+	ks = NULL;
+	(void)cfg_keystore_fromconfig(NULL, mctx, lctx, engine, &kslist, &ks);
+	INSIST(ks != NULL);
+	if (keydir != NULL) {
+		/* '-K keydir' takes priority */
+		dns_keystore_setdirectory(ks, keydir);
+	}
+	dns_keystore_detach(&ks);
+
+	(void)cfg_map_get(config, "dnssec-policy", &kasps);
+	for (element = cfg_list_first(kasps); element != NULL;
+	     element = cfg_list_next(element))
+	{
+		cfg_obj_t *kconfig = cfg_listelt_value(element);
+		kasp = NULL;
+		if (strcmp(cfg_obj_asstring(cfg_tuple_get(kconfig, "name")),
+			   name) != 0)
+		{
+			continue;
+		}
+
+		result = cfg_kasp_fromconfig(kconfig, NULL, true, mctx, lctx,
+					     &kslist, &kasplist, &kasp);
+		if (result != ISC_R_SUCCESS) {
+			fatal("failed to configure dnssec-policy '%s': %s",
+			      cfg_obj_asstring(cfg_tuple_get(kconfig, "name")),
+			      isc_result_totext(result));
+		}
+		INSIST(kasp != NULL);
+		dns_kasp_freeze(kasp);
+		break;
+	}
+
+	*kaspp = kasp;
+
+	/*
+	 * Cleanup kasp list.
+	 */
+	for (kasp = ISC_LIST_HEAD(kasplist); kasp != NULL; kasp = kasp_next) {
+		kasp_next = ISC_LIST_NEXT(kasp, link);
+		ISC_LIST_UNLINK(kasplist, kasp, link);
+		dns_kasp_detach(&kasp);
+	}
+
+	/*
+	 * Cleanup keystore list.
+	 */
+	for (ks = ISC_LIST_HEAD(kslist); ks != NULL; ks = ks_next) {
+		ks_next = ISC_LIST_NEXT(ks, link);
+		ISC_LIST_UNLINK(kslist, ks, link);
+		dns_keystore_detach(&ks);
+	}
 }

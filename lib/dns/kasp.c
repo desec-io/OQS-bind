@@ -140,6 +140,22 @@ dns_kasp_signdelay(dns_kasp_t *kasp) {
 }
 
 uint32_t
+dns_kasp_sigjitter(dns_kasp_t *kasp) {
+	REQUIRE(DNS_KASP_VALID(kasp));
+	REQUIRE(kasp->frozen);
+
+	return (kasp->signatures_jitter);
+}
+
+void
+dns_kasp_setsigjitter(dns_kasp_t *kasp, uint32_t value) {
+	REQUIRE(DNS_KASP_VALID(kasp));
+	REQUIRE(!kasp->frozen);
+
+	kasp->signatures_jitter = value;
+}
+
+uint32_t
 dns_kasp_sigrefresh(dns_kasp_t *kasp) {
 	REQUIRE(DNS_KASP_VALID(kasp));
 	REQUIRE(kasp->frozen);
@@ -386,21 +402,19 @@ dns_kasp_addkey(dns_kasp_t *kasp, dns_kasp_key_t *key) {
 
 isc_result_t
 dns_kasp_key_create(dns_kasp_t *kasp, dns_kasp_key_t **keyp) {
-	dns_kasp_key_t *key;
-
+	dns_kasp_key_t *key = NULL;
+    dns_kasp_key_t k = { .param = -1 };
 	REQUIRE(DNS_KASP_VALID(kasp));
 	REQUIRE(keyp != NULL && *keyp == NULL);
 
 	key = isc_mem_get(kasp->mctx, sizeof(*key));
+    *key = k;
+    
 	key->mctx = NULL;
 	isc_mem_attach(kasp->mctx, &key->mctx);
 
-	ISC_LINK_INIT(key, link);
-
-	key->lifetime = 0;
-	key->algorithm = 0;
-	key->param = -1;
-	key->role = 0;
+    ISC_LINK_INIT(key, link);
+    
 	*keyp = key;
 	return (ISC_R_SUCCESS);
 }
@@ -409,6 +423,9 @@ void
 dns_kasp_key_destroy(dns_kasp_key_t *key) {
 	REQUIRE(key != NULL);
 
+    if (key->keystore != NULL) {
+        dns_keystore_detach(&key->keystore);
+    }
 	isc_mem_putanddetach(&key->mctx, key, sizeof(*key));
 }
 
@@ -491,6 +508,13 @@ dns_kasp_key_lifetime(dns_kasp_key_t *key) {
 	return (key->lifetime);
 }
 
+dns_keystore_t *
+dns_kasp_key_keystore(dns_kasp_key_t *key) {
+	REQUIRE(key != NULL);
+
+	return (key->keystore);
+}
+
 bool
 dns_kasp_key_ksk(dns_kasp_key_t *key) {
 	REQUIRE(key != NULL);
@@ -503,6 +527,35 @@ dns_kasp_key_zsk(dns_kasp_key_t *key) {
 	REQUIRE(key != NULL);
 
 	return (key->role & DNS_KASP_KEY_ROLE_ZSK);
+}
+
+bool
+dns_kasp_key_match(dns_kasp_key_t *key, dns_dnsseckey_t *dkey) {
+	isc_result_t ret;
+	bool role = false;
+
+	REQUIRE(key != NULL);
+	REQUIRE(dkey != NULL);
+
+	/* Matching algorithms? */
+	if (dst_key_alg(dkey->key) != dns_kasp_key_algorithm(key)) {
+		return (false);
+	}
+	/* Matching length? */
+	if (dst_key_size(dkey->key) != dns_kasp_key_size(key)) {
+		return (false);
+	}
+	/* Matching role? */
+	ret = dst_key_getbool(dkey->key, DST_BOOL_KSK, &role);
+	if (ret != ISC_R_SUCCESS || role != dns_kasp_key_ksk(key)) {
+		return (false);
+	}
+	ret = dst_key_getbool(dkey->key, DST_BOOL_ZSK, &role);
+	if (ret != ISC_R_SUCCESS || role != dns_kasp_key_zsk(key)) {
+		return (false);
+	}
+	/* Found a match. */
+	return (true);
 }
 
 uint8_t

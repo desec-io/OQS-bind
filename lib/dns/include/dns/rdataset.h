@@ -184,12 +184,12 @@ struct dns_rdataset {
 		 * comments in rbtdb.c for details.)
 		 */
 		struct {
-			struct dns_db *db;
-			dns_dbnode_t  *node;
-			unsigned char *raw;
-			unsigned char *iter_pos;
-			unsigned int   iter_count;
-			dns_proof_t   *noqname, *closest;
+			struct dns_db	       *db;
+			dns_dbnode_t	       *node;
+			unsigned char	       *raw;
+			unsigned char	       *iter_pos;
+			unsigned int		iter_count;
+			dns_slabheader_proof_t *noqname, *closest;
 		} slab;
 
 		/*
@@ -223,11 +223,10 @@ struct dns_rdataset {
 
 #define DNS_RDATASET_COUNT_UNDEFINED UINT32_MAX
 
-#define DNS_RDATASET_INIT                                                  \
-	{                                                                  \
-		.magic = DNS_RDATASET_MAGIC, .link = ISC_LINK_INITIALIZER, \
-		.count = DNS_RDATASET_COUNT_UNDEFINED                      \
-	}
+#define DNS_RDATASET_INIT               \
+	{ .magic = DNS_RDATASET_MAGIC,  \
+	  .link = ISC_LINK_INITIALIZER, \
+	  .count = DNS_RDATASET_COUNT_UNDEFINED }
 
 /*!
  * \def DNS_RDATASETATTR_RENDERED

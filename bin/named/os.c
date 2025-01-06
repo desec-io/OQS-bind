@@ -51,9 +51,7 @@
 #endif /* ifdef HAVE_LIBSCF */
 
 static char *pidfile = NULL;
-static char *lockfile = NULL;
 static int devnullfd = -1;
-static int singletonfd = -1;
 
 #ifndef ISC_FACILITY
 #define ISC_FACILITY LOG_DAEMON
@@ -430,10 +428,10 @@ named_os_daemonize(void) {
 			char buf;
 			n = read(dfd[0], &buf, 1);
 			if (n == 1) {
-				_exit(0);
+				_exit(EXIT_SUCCESS);
 			}
 		} while (n == -1 && errno == EINTR);
-		_exit(1);
+		_exit(EXIT_FAILURE);
 	}
 	(void)close(dfd[0]);
 
@@ -705,24 +703,6 @@ cleanup_pidfile(void) {
 	pidfile = NULL;
 }
 
-static void
-cleanup_lockfile(void) {
-	if (singletonfd != -1) {
-		close(singletonfd);
-		singletonfd = -1;
-	}
-
-	if (lockfile != NULL) {
-		int n = unlink(lockfile);
-		if (n == -1 && errno != ENOENT) {
-			named_main_earlywarning("unlink '%s': failed",
-						lockfile);
-		}
-		free(lockfile);
-		lockfile = NULL;
-	}
-}
-
 /*
  * Ensure that a directory exists.
  * NOTE: This function overwrites the '/' characters in 'filename' with
@@ -906,69 +886,10 @@ named_os_writepidfile(const char *filename, bool first_time) {
 	(void)fclose(fh);
 }
 
-bool
-named_os_issingleton(const char *filename) {
-	char strbuf[ISC_STRERRORSIZE];
-	struct flock lock;
-
-	if (singletonfd != -1) {
-		return (true);
-	}
-
-	if (strcasecmp(filename, "none") == 0) {
-		return (true);
-	}
-
-	/*
-	 * Make the containing directory if it doesn't exist.
-	 */
-	lockfile = strdup(filename);
-	if (lockfile == NULL) {
-		strerror_r(errno, strbuf, sizeof(strbuf));
-		named_main_earlyfatal("couldn't allocate memory for '%s': %s",
-				      filename, strbuf);
-	} else {
-		int ret = mkdirpath(lockfile, named_main_earlywarning);
-		if (ret == -1) {
-			named_main_earlywarning("couldn't create '%s'",
-						filename);
-			cleanup_lockfile();
-			return (false);
-		}
-	}
-
-	/*
-	 * named_os_openfile() uses safeopen() which removes any existing
-	 * files. We can't use that here.
-	 */
-	singletonfd = open(filename, O_WRONLY | O_CREAT,
-			   S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-	if (singletonfd == -1) {
-		cleanup_lockfile();
-		return (false);
-	}
-
-	memset(&lock, 0, sizeof(lock));
-	lock.l_type = F_WRLCK;
-	lock.l_whence = SEEK_SET;
-	lock.l_start = 0;
-	lock.l_len = 1;
-
-	/* Non-blocking (does not wait for lock) */
-	if (fcntl(singletonfd, F_SETLK, &lock) == -1) {
-		close(singletonfd);
-		singletonfd = -1;
-		return (false);
-	}
-
-	return (true);
-}
-
 void
 named_os_shutdown(void) {
 	closelog();
 	cleanup_pidfile();
-	cleanup_lockfile();
 }
 
 void

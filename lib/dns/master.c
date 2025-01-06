@@ -204,33 +204,52 @@ grow_rdata(int, dns_rdata_t *, int, rdatalist_head_t *, rdatalist_head_t *,
 static void
 loadctx_destroy(dns_loadctx_t *lctx);
 
-#define GETTOKENERR(lexer, options, token, eol, err)                      \
-	do {                                                              \
-		result = gettoken(lexer, options, token, eol, callbacks); \
-		switch (result) {                                         \
-		case ISC_R_SUCCESS:                                       \
-			break;                                            \
-		case ISC_R_UNEXPECTED:                                    \
-			goto insist_and_cleanup;                          \
-		default:                                                  \
-			if (MANYERRS(lctx, result)) {                     \
-				SETRESULT(lctx, result);                  \
-				LOGIT(result);                            \
-				read_till_eol = true;                     \
-				err goto next_line;                       \
-			} else                                            \
-				goto log_and_cleanup;                     \
-		}                                                         \
-		if ((token)->type == isc_tokentype_special) {             \
-			result = DNS_R_SYNTAX;                            \
-			if (MANYERRS(lctx, result)) {                     \
-				SETRESULT(lctx, result);                  \
-				LOGIT(result);                            \
-				read_till_eol = true;                     \
-				goto next_line;                           \
-			} else                                            \
-				goto log_and_cleanup;                     \
-		}                                                         \
+#define LCTX_MANYERRORS(lctx) (((lctx)->options & DNS_MASTER_MANYERRORS) != 0)
+
+#define GETTOKENERR(lexer, options, token, eol, err)                         \
+	do {                                                                 \
+		result = gettoken(lexer, options, token, eol, callbacks);    \
+		switch (result) {                                            \
+		case ISC_R_SUCCESS:                                          \
+			break;                                               \
+		case ISC_R_NOTFILE:                                          \
+			/* Treat "bad" $INCLUDE as eof. */                   \
+			if (ictx->parent != NULL && LCTX_MANYERRORS(lctx)) { \
+				SETRESULT(lctx, result);                     \
+				COMMITALL;                                   \
+				lctx->inc = ictx->parent;                    \
+				ictx->parent = NULL;                         \
+				incctx_destroy(lctx->mctx, ictx);            \
+				RUNTIME_CHECK(isc_lex_close(lctx->lex) ==    \
+					      ISC_R_SUCCESS);                \
+				line = isc_lex_getsourceline(lctx->lex);     \
+				POST(line);                                  \
+				source = isc_lex_getsourcename(lctx->lex);   \
+				ictx = lctx->inc;                            \
+				continue;                                    \
+			}                                                    \
+			goto insist_and_cleanup;                             \
+		case ISC_R_UNEXPECTED:                                       \
+			goto insist_and_cleanup;                             \
+		default:                                                     \
+			if (MANYERRS(lctx, result)) {                        \
+				SETRESULT(lctx, result);                     \
+				LOGIT(result);                               \
+				read_till_eol = true;                        \
+				err goto next_line;                          \
+			} else                                               \
+				goto log_and_cleanup;                        \
+		}                                                            \
+		if ((token)->type == isc_tokentype_special) {                \
+			result = DNS_R_SYNTAX;                               \
+			if (MANYERRS(lctx, result)) {                        \
+				SETRESULT(lctx, result);                     \
+				LOGIT(result);                               \
+				read_till_eol = true;                        \
+				goto next_line;                              \
+			} else                                               \
+				goto log_and_cleanup;                        \
+		}                                                            \
 	} while (0)
 #define GETTOKEN(lexer, options, token, eol) \
 	GETTOKENERR(lexer, options, token, eol, {})
@@ -283,7 +302,7 @@ loadctx_destroy(dns_loadctx_t *lctx);
 
 #define MANYERRS(lctx, result)                                     \
 	((result != ISC_R_SUCCESS) && (result != ISC_R_IOERROR) && \
-	 ((lctx)->options & DNS_MASTER_MANYERRORS) != 0)
+	 LCTX_MANYERRORS(lctx))
 
 #define SETRESULT(lctx, r)                     \
 	if ((lctx)->result == ISC_R_SUCCESS) { \
@@ -581,7 +600,8 @@ static const char *hex = "0123456789abcdef0123456789ABCDEF";
  * counting the terminating NUL.
  */
 static unsigned int
-nibbles(char *numbuf, size_t length, unsigned int width, char mode, int value) {
+nibbles(char *numbuf, size_t length, unsigned int width, char mode,
+	unsigned int value) {
 	unsigned int count = 0;
 
 	/*
@@ -1007,7 +1027,7 @@ load_text(dns_loadctx_t *lctx) {
 	dns_rdataclass_t rdclass;
 	dns_rdatatype_t type, covers;
 	uint32_t ttl_offset = 0;
-	dns_name_t *new_name;
+	dns_name_t *new_name = NULL;
 	bool current_has_delegation = false;
 	bool finish_origin = false;
 	bool finish_include = false;
@@ -1018,9 +1038,9 @@ load_text(dns_loadctx_t *lctx) {
 	isc_result_t result = ISC_R_UNEXPECTED;
 	rdatalist_head_t glue_list;
 	rdatalist_head_t current_list;
-	dns_rdatalist_t *this;
+	dns_rdatalist_t *this = NULL;
 	dns_rdatalist_t *rdatalist = NULL;
-	dns_rdatalist_t *new_rdatalist;
+	dns_rdatalist_t *new_rdatalist = NULL;
 	int rdlcount = 0;
 	int rdlcount_save = 0;
 	int rdatalist_size = 0;
@@ -1029,21 +1049,21 @@ load_text(dns_loadctx_t *lctx) {
 	isc_buffer_t target_ft;
 	isc_buffer_t target_save;
 	dns_rdata_t *rdata = NULL;
-	dns_rdata_t *new_rdata;
+	dns_rdata_t *new_rdata = NULL;
 	int rdcount = 0;
 	int rdcount_save = 0;
 	int rdata_size = 0;
 	unsigned char *target_mem = NULL;
 	int target_size = TSIZ;
 	int new_in_use;
-	isc_mem_t *mctx;
-	dns_rdatacallbacks_t *callbacks;
-	dns_incctx_t *ictx;
+	isc_mem_t *mctx = NULL;
+	dns_rdatacallbacks_t *callbacks = NULL;
+	dns_incctx_t *ictx = NULL;
 	char *range = NULL;
 	char *lhs = NULL;
 	char *gtype = NULL;
 	char *rhs = NULL;
-	const char *source;
+	const char *source = NULL;
 	unsigned long line = 0;
 	bool explicit_ttl;
 	char classname1[DNS_RDATACLASS_FORMATSIZE];
@@ -1065,6 +1085,11 @@ load_text(dns_loadctx_t *lctx) {
 	target_mem = isc_mem_get(mctx, target_size);
 	isc_buffer_init(&target, target_mem, target_size);
 	target_save = target;
+
+	/* open a database transaction */
+	if (callbacks->setup != NULL) {
+		callbacks->setup(callbacks->add_private);
+	}
 
 	if ((lctx->options & DNS_MASTER_CHECKNAMES) != 0) {
 		options |= DNS_RDATA_CHECKNAMES;
@@ -2116,6 +2141,11 @@ insist_and_cleanup:
 	INSIST(result != ISC_R_SUCCESS);
 
 cleanup:
+	/* commit the database transaction */
+	if (callbacks->commit != NULL) {
+		callbacks->commit(callbacks->add_private);
+	}
+
 	while ((this = ISC_LIST_HEAD(current_list)) != NULL) {
 		ISC_LIST_UNLINK(current_list, this, link);
 	}
@@ -2356,6 +2386,11 @@ load_raw(dns_loadctx_t *lctx) {
 	isc_buffer_init(&target, target_mem, target_size);
 
 	name = dns_fixedname_initname(&fixed);
+
+	/* open a database transaction */
+	if (callbacks->setup != NULL) {
+		callbacks->setup(callbacks->add_private);
+	}
 
 	/*
 	 * In the following loop, we regard any error fatal regardless of
@@ -2598,6 +2633,11 @@ load_raw(dns_loadctx_t *lctx) {
 	}
 
 cleanup:
+	/* commit the database transaction */
+	if (callbacks->commit != NULL) {
+		callbacks->commit(callbacks->add_private);
+	}
+
 	if (rdata != NULL) {
 		isc_mem_cput(mctx, rdata, rdata_size, sizeof(*rdata));
 	}
@@ -2888,17 +2928,14 @@ commit(dns_rdatacallbacks_t *callbacks, dns_loadctx_t *lctx,
        unsigned int line) {
 	dns_rdatalist_t *this;
 	dns_rdataset_t dataset;
-	isc_result_t result;
+	isc_result_t result = ISC_R_SUCCESS;
 	char namebuf[DNS_NAME_FORMATSIZE];
 	void (*error)(struct dns_rdatacallbacks *, const char *, ...);
 
 	this = ISC_LIST_HEAD(*head);
 	error = callbacks->error;
 
-	if (this == NULL) {
-		return (ISC_R_SUCCESS);
-	}
-	do {
+	while (this != NULL) {
 		dns_rdataset_init(&dataset);
 		dns_rdatalist_tordataset(this, &dataset);
 		dataset.trust = dns_trust_ultimate;
@@ -2911,8 +2948,8 @@ commit(dns_rdatacallbacks_t *callbacks, dns_loadctx_t *lctx,
 			dataset.attributes |= DNS_RDATASETATTR_RESIGN;
 			dataset.resign = resign_fromlist(this, lctx);
 		}
-		result = ((*callbacks->add)(callbacks->add_private, owner,
-					    &dataset DNS__DB_FILELINE));
+		result = callbacks->add(callbacks->add_private, owner,
+					&dataset DNS__DB_FILELINE);
 		if (result == ISC_R_NOMEMORY) {
 			(*error)(callbacks, "dns_master_load: %s",
 				 isc_result_totext(result));
@@ -2931,12 +2968,13 @@ commit(dns_rdatacallbacks_t *callbacks, dns_loadctx_t *lctx,
 		if (MANYERRS(lctx, result)) {
 			SETRESULT(lctx, result);
 		} else if (result != ISC_R_SUCCESS) {
-			return (result);
+			break;
 		}
 		ISC_LIST_UNLINK(*head, this, link);
 		this = ISC_LIST_HEAD(*head);
-	} while (this != NULL);
-	return (ISC_R_SUCCESS);
+	}
+
+	return (result);
 }
 
 /*

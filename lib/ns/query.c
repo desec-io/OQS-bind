@@ -144,10 +144,6 @@
 /*% Was the client already sent a response? */
 #define QUERY_ANSWERED(q) (((q)->attributes & NS_QUERYATTR_ANSWERED) != 0)
 
-/*% Have we already processed an answer via stale-answer-client-timeout? */
-#define QUERY_STALEPENDING(q) \
-	(((q)->attributes & NS_QUERYATTR_STALEPENDING) != 0)
-
 /*% Does the query allow stale data in the response? */
 #define QUERY_STALEOK(q) (((q)->attributes & NS_QUERYATTR_STALEOK) != 0)
 
@@ -196,11 +192,13 @@ client_trace(ns_client_t *client, int level, const char *message) {
 #define CCTRACE(l, m) ((void)m)
 #endif /* WANT_QUERYTRACE */
 
-#define DNS_GETDB_NOEXACT    0x01U
-#define DNS_GETDB_NOLOG	     0x02U
-#define DNS_GETDB_PARTIAL    0x04U
-#define DNS_GETDB_IGNOREACL  0x08U
-#define DNS_GETDB_STALEFIRST 0X0CU
+enum {
+	DNS_GETDB_NOEXACT = 1 << 0,
+	DNS_GETDB_NOLOG = 1 << 1,
+	DNS_GETDB_PARTIAL = 1 << 2,
+	DNS_GETDB_IGNOREACL = 1 << 3,
+	DNS_GETDB_STALEFIRST = 1 << 4,
+};
 
 #define PENDINGOK(x) (((x) & DNS_DBFIND_PENDINGOK) != 0)
 
@@ -477,10 +475,10 @@ static void
 query_addnxrrsetnsec(query_ctx_t *qctx);
 
 static isc_result_t
-query_nxdomain(query_ctx_t *qctx, isc_result_t res);
+query_nxdomain(query_ctx_t *qctx, isc_result_t result);
 
 static isc_result_t
-query_redirect(query_ctx_t *qctx);
+query_redirect(query_ctx_t *qctx, isc_result_t result);
 
 static isc_result_t
 query_ncache(query_ctx_t *qctx, isc_result_t result);
@@ -2485,6 +2483,7 @@ free_fresp(ns_client_t *client, dns_fetchresponse_t **frespp) {
 
 static isc_result_t
 recursionquotatype_attach(ns_client_t *client, bool soft_limit) {
+	isc_statscounter_t recurscount;
 	isc_result_t result;
 
 	result = isc_quota_acquire(&client->manager->sctx->recursionquota);
@@ -2507,8 +2506,12 @@ recursionquotatype_attach(ns_client_t *client, bool soft_limit) {
 		return (result);
 	}
 
-	ns_stats_increment(client->manager->sctx->nsstats,
-			   ns_statscounter_recursclients);
+	recurscount = ns_stats_increment(client->manager->sctx->nsstats,
+					 ns_statscounter_recursclients);
+
+	ns_stats_update_if_greater(client->manager->sctx->nsstats,
+				   ns_statscounter_recurshighwater,
+				   recurscount + 1);
 
 	return (result);
 }
@@ -2620,7 +2623,6 @@ cleanup_after_fetch(dns_fetchresponse_t *resp, const char *ctracestr,
 	dns_fetch_t **fetchp = NULL;
 	isc_result_t result;
 
-	REQUIRE(resp->type == FETCHDONE);
 	REQUIRE(NS_CLIENT_VALID(client));
 
 	CTRACE(ISC_LOG_DEBUG(3), ctracestr);
@@ -5806,7 +5808,7 @@ ns__query_start(query_ctx_t *qctx) {
 		}
 	}
 
-	if (!qctx->is_zone && (qctx->view->staleanswerclienttimeout == 0) &&
+	if (!qctx->is_zone && qctx->view->staleanswerclienttimeout == 0 &&
 	    dns_view_staleanswerenabled(qctx->view))
 	{
 		/*
@@ -5834,6 +5836,9 @@ static void
 async_restart(void *arg) {
 	query_ctx_t *qctx = arg;
 	ns_client_t *client = qctx->client;
+	isc_nmhandle_t *handle = client->restarthandle;
+
+	client->restarthandle = NULL;
 
 	ns__query_start(qctx);
 
@@ -5841,6 +5846,7 @@ async_restart(void *arg) {
 	qctx_freedata(qctx);
 	qctx_destroy(qctx);
 	isc_mem_put(client->manager->mctx, qctx, sizeof(*qctx));
+	isc_nmhandle_detach(&handle);
 }
 
 /*
@@ -6006,13 +6012,8 @@ query_lookup(query_ctx_t *qctx) {
 	 * If DNS_DBFIND_STALETIMEOUT is set, a stale answer is requested.
 	 * This can happen if 'stale-answer-client-timeout' is enabled.
 	 *
-	 * If 'stale-answer-client-timeout' is set to 0, and a stale
-	 * answer is found, send it to the client, and try to refresh the
-	 * RRset.
-	 *
-	 * If 'stale-answer-client-timeout' is non-zero, and a stale
-	 * answer is found, send it to the client. Don't try to refresh the
-	 * RRset because a fetch is already in progress.
+	 * If a stale answer is found, send it to the client, and try to refresh
+	 * the RRset.
 	 */
 	stale_timeout = ((dboptions & DNS_DBFIND_STALETIMEOUT) != 0);
 
@@ -6134,35 +6135,7 @@ query_lookup(query_ctx_t *qctx) {
 				}
 			}
 		} else {
-			/*
-			 * The 'stale-answer-client-timeout' triggered, return
-			 * the stale answer if available, otherwise wait until
-			 * the resolver finishes.
-			 */
-			isc_log_write(
-				ns_lctx, NS_LOGCATEGORY_SERVE_STALE,
-				NS_LOGMODULE_QUERY, ISC_LOG_INFO,
-				"%s %s client timeout, stale answer %s (%s)",
-				namebuf, typebuf,
-				stale_found ? "used" : "unavailable",
-				isc_result_totext(result));
-			if (stale_found) {
-				ns_client_extendederror(qctx->client, ede,
-							"client timeout");
-			} else if (!answer_found) {
-				return (result);
-			}
-
-			if (!stale_client_answer(result)) {
-				return (result);
-			}
-
-			/*
-			 * There still might be real answer later. Mark the
-			 * query so we'll know we can skip answering.
-			 */
-			qctx->client->query.attributes |=
-				NS_QUERYATTR_STALEPENDING;
+			UNREACHABLE();
 		}
 	}
 
@@ -6237,29 +6210,6 @@ query_clear_stale(ns_client_t *client) {
 }
 
 /*
- * Create a new query context with the sole intent of looking up for a stale
- * RRset in cache. If an entry is found, we mark the original query as
- * answered, in order to avoid answering the query twice, when the original
- * fetch finishes.
- */
-static void
-query_lookup_stale(ns_client_t *client) {
-	query_ctx_t qctx;
-
-	qctx_init(client, NULL, client->query.qtype, &qctx);
-	dns_db_attach(client->view->cachedb, &qctx.db);
-	client->query.attributes &= ~NS_QUERYATTR_RECURSIONOK;
-	client->query.dboptions |= DNS_DBFIND_STALETIMEOUT;
-	client->nodetach = true;
-	(void)query_lookup(&qctx);
-	if (qctx.node != NULL) {
-		dns_db_detachnode(qctx.db, &qctx.node);
-	}
-	qctx_freedata(&qctx);
-	qctx_destroy(&qctx);
-}
-
-/*
  * Event handler to resume processing a query after recursion, or when a
  * client timeout is triggered. If the query has timed out or been cancelled
  * or the system is shutting down, clean up and exit. If a client timeout is
@@ -6272,7 +6222,6 @@ fetch_callback(void *arg) {
 	ns_client_t *client = resp->arg;
 	dns_fetch_t *fetch = NULL;
 	bool fetch_canceled = false;
-	bool fetch_answered = false;
 	isc_logcategory_t *logcategory = NS_LOGCATEGORY_QUERY_ERRORS;
 	isc_result_t result;
 	int errorloglevel;
@@ -6283,13 +6232,6 @@ fetch_callback(void *arg) {
 
 	CTRACE(ISC_LOG_DEBUG(3), "fetch_callback");
 
-	if (resp->type == TRYSTALE) {
-		if (resp->result != ISC_R_CANCELED) {
-			query_lookup_stale(client);
-		}
-		isc_mem_putanddetach(&resp->mctx, resp, sizeof(*resp));
-		return;
-	}
 	/*
 	 * We are resuming from recursion. Reset any attributes, options
 	 * that a lookup due to stale-answer-client-timeout may have set.
@@ -6297,22 +6239,13 @@ fetch_callback(void *arg) {
 	if (client->view->cachedb != NULL && client->view->recursion) {
 		client->query.attributes |= NS_QUERYATTR_RECURSIONOK;
 	}
-	client->query.fetchoptions &= ~DNS_FETCHOPT_TRYSTALE_ONTIMEOUT;
 	client->query.dboptions &= ~DNS_DBFIND_STALETIMEOUT;
 	client->nodetach = false;
 
 	LOCK(&client->query.fetchlock);
 	INSIST(FETCH_RECTYPE_NORMAL(client) == resp->fetch ||
 	       FETCH_RECTYPE_NORMAL(client) == NULL);
-	if (QUERY_STALEPENDING(&client->query)) {
-		/*
-		 * We've gotten an authoritative answer to a query that
-		 * was left pending after a stale timeout. We don't need
-		 * to do anything with it; free all the data and go home.
-		 */
-		FETCH_RECTYPE_NORMAL(client) = NULL;
-		fetch_answered = true;
-	} else if (FETCH_RECTYPE_NORMAL(client) != NULL) {
+	if (FETCH_RECTYPE_NORMAL(client) != NULL) {
 		/*
 		 * This is the fetch we've been waiting for.
 		 */
@@ -6359,7 +6292,7 @@ fetch_callback(void *arg) {
 	 */
 	qctx_init(client, &resp, 0, &qctx);
 
-	if (fetch_canceled || fetch_answered) {
+	if (fetch_canceled) {
 		/*
 		 * We've timed out or are shutting down. We can now
 		 * free the event and other resources held by qctx, but
@@ -6369,14 +6302,10 @@ fetch_callback(void *arg) {
 		qctx_freedata(&qctx);
 
 		/*
-		 * Return an error to the client, or just drop.
+		 * Return an error to the client.
 		 */
-		if (fetch_canceled) {
-			CTRACE(ISC_LOG_ERROR, "fetch cancelled");
-			query_error(client, DNS_R_SERVFAIL, __LINE__);
-		} else {
-			query_next(client, ISC_R_CANCELED);
-		}
+		CTRACE(ISC_LOG_ERROR, "fetch cancelled");
+		query_error(client, DNS_R_SERVFAIL, __LINE__);
 
 		/*
 		 * Free any persistent plugin data that was allocated to
@@ -6552,13 +6481,6 @@ ns_query_recurse(ns_client_t *client, dns_rdatatype_t qtype, dns_name_t *qname,
 
 	if (!TCP(client)) {
 		peeraddr = &client->peeraddr;
-	}
-
-	if (client->view->staleanswerclienttimeout > 0 &&
-	    client->view->staleanswerclienttimeout != (uint32_t)-1 &&
-	    dns_view_staleanswerenabled(client->view))
-	{
-		client->query.fetchoptions |= DNS_FETCHOPT_TRYSTALE_ONTIMEOUT;
 	}
 
 	isc_nmhandle_attach(client->handle, &HANDLE_RECTYPE_NORMAL(client));
@@ -7330,9 +7252,7 @@ query_checkrpz(query_ctx_t *qctx, isc_result_t result) {
 		 * Add SOA record to additional section
 		 */
 		if (qctx->rpz_st->m.rpz->addsoa) {
-			bool override_ttl =
-				dns_rdataset_isassociated(qctx->rdataset);
-			rresult = query_addsoa(qctx, override_ttl,
+			rresult = query_addsoa(qctx, UINT32_MAX,
 					       DNS_SECTION_ADDITIONAL);
 			if (rresult != ISC_R_SUCCESS) {
 				QUERY_ERROR(qctx, result);
@@ -7655,8 +7575,19 @@ query_usestale(query_ctx_t *qctx, isc_result_t result) {
 	qctx_freedata(qctx);
 
 	if (dns_view_staleanswerenabled(qctx->client->view)) {
-		dns_db_attach(qctx->client->view->cachedb, &qctx->db);
-		qctx->version = NULL;
+		isc_result_t ret;
+		ret = query_getdb(qctx->client, qctx->client->query.qname,
+				  qctx->client->query.qtype, qctx->options,
+				  &qctx->zone, &qctx->db, &qctx->version,
+				  &qctx->is_zone);
+		if (ret != ISC_R_SUCCESS) {
+			/*
+			 * Failed to get the database, unexpected, but let us
+			 * at least abandon serve-stale.
+			 */
+			return (false);
+		}
+
 		qctx->client->query.dboptions |= DNS_DBFIND_STALEOK;
 		if (FETCH_RECTYPE_NORMAL(qctx->client) != NULL) {
 			dns_resolver_destroyfetch(
@@ -7682,8 +7613,7 @@ query_usestale(query_ctx_t *qctx, isc_result_t result) {
  * result from the search.
  */
 static isc_result_t
-query_gotanswer(query_ctx_t *qctx, isc_result_t res) {
-	isc_result_t result = res;
+query_gotanswer(query_ctx_t *qctx, isc_result_t result) {
 	char errmsg[256];
 
 	CCTRACE(ISC_LOG_DEBUG(3), "query_gotanswer");
@@ -7759,7 +7689,7 @@ root_key_sentinel:
 		return (query_coveringnsec(qctx));
 
 	case DNS_R_NCACHENXDOMAIN:
-		result = query_redirect(qctx);
+		result = query_redirect(qctx, result);
 		if (result != ISC_R_COMPLETE) {
 			return (result);
 		}
@@ -9500,11 +9430,10 @@ query_addnxrrsetnsec(query_ctx_t *qctx) {
  * Handle NXDOMAIN and empty wildcard responses.
  */
 static isc_result_t
-query_nxdomain(query_ctx_t *qctx, isc_result_t res) {
+query_nxdomain(query_ctx_t *qctx, isc_result_t result) {
 	dns_section_t section;
 	uint32_t ttl;
-	isc_result_t result = res;
-	bool empty_wild = (res == DNS_R_EMPTYWILD);
+	bool empty_wild = (result == DNS_R_EMPTYWILD);
 
 	CCTRACE(ISC_LOG_DEBUG(3), "query_nxdomain");
 
@@ -9513,7 +9442,7 @@ query_nxdomain(query_ctx_t *qctx, isc_result_t res) {
 	INSIST(qctx->is_zone || REDIRECT(qctx->client));
 
 	if (!empty_wild) {
-		result = query_redirect(qctx);
+		result = query_redirect(qctx, result);
 		if (result != ISC_R_COMPLETE) {
 			return (result);
 		}
@@ -9601,7 +9530,7 @@ cleanup:
  * redirecting, so query processing should continue past it.
  */
 static isc_result_t
-query_redirect(query_ctx_t *qctx) {
+query_redirect(query_ctx_t *qctx, isc_result_t saved_result) {
 	isc_result_t result;
 
 	CCTRACE(ISC_LOG_DEBUG(3), "query_redirect");
@@ -9642,7 +9571,7 @@ query_redirect(query_ctx_t *qctx) {
 		SAVE(qctx->client->query.redirect.rdataset, qctx->rdataset);
 		SAVE(qctx->client->query.redirect.sigrdataset,
 		     qctx->sigrdataset);
-		qctx->client->query.redirect.result = DNS_R_NCACHENXDOMAIN;
+		qctx->client->query.redirect.result = saved_result;
 		dns_name_copy(qctx->fname, qctx->client->query.redirect.fname);
 		qctx->client->query.redirect.authoritative =
 			qctx->authoritative;
@@ -10237,7 +10166,7 @@ query_coveringnsec(query_ctx_t *qctx) {
 	 * We now have the proof that we have an NXDOMAIN.  Apply
 	 * NXDOMAIN redirection if configured.
 	 */
-	result = query_redirect(qctx);
+	result = query_redirect(qctx, DNS_R_COVERINGNSEC);
 	if (result != ISC_R_COMPLETE) {
 		redirected = true;
 		goto cleanup;
@@ -10984,20 +10913,49 @@ query_addbestns(query_ctx_t *qctx) {
 	isc_buffer_t b;
 	dns_clientinfomethods_t cm;
 	dns_clientinfo_t ci;
+	dns_name_t qname;
 
 	CTRACE(ISC_LOG_DEBUG(3), "query_addbestns");
 
 	dns_clientinfomethods_init(&cm, ns_client_sourceip);
 	dns_clientinfo_init(&ci, client, NULL);
 
+	dns_name_init(&qname, NULL);
+	dns_name_clone(client->query.qname, &qname);
+
 	/*
 	 * Find the right database.
 	 */
-	result = query_getdb(client, client->query.qname, dns_rdatatype_ns, 0,
-			     &zone, &db, &version, &is_zone);
-	if (result != ISC_R_SUCCESS) {
-		goto cleanup;
-	}
+	do {
+		result = query_getdb(client, &qname, dns_rdatatype_ns, 0, &zone,
+				     &db, &version, &is_zone);
+		if (result != ISC_R_SUCCESS) {
+			goto cleanup;
+		}
+
+		/*
+		 * If this is a static stub zone look for a parent zone.
+		 */
+		if (zone != NULL &&
+		    dns_zone_gettype(zone) == dns_zone_staticstub)
+		{
+			unsigned int labels = dns_name_countlabels(&qname);
+			dns_db_detach(&db);
+			dns_zone_detach(&zone);
+			version = NULL;
+			if (labels != 1) {
+				dns_name_split(&qname, labels - 1, NULL,
+					       &qname);
+				continue;
+			}
+			if (!USECACHE(client)) {
+				goto cleanup;
+			}
+			dns_db_attach(client->view->cachedb, &db);
+			is_zone = false;
+		}
+		break;
+	} while (true);
 
 db_find:
 	/*
@@ -11633,6 +11591,8 @@ ns_query_done(query_ctx_t *qctx) {
 		saved_qctx = isc_mem_get(qctx->client->manager->mctx,
 					 sizeof(*saved_qctx));
 		qctx_save(qctx, saved_qctx);
+		isc_nmhandle_attach(qctx->client->handle,
+				    &qctx->client->restarthandle);
 		isc_async_run(qctx->client->manager->loop, async_restart,
 			      saved_qctx);
 		return (DNS_R_CONTINUE);

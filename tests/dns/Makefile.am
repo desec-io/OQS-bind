@@ -35,8 +35,9 @@ check_PROGRAMS =		\
 	private_test		\
 	qp_test			\
 	qpmulti_test		\
+	qpdb_test		\
+	qpzone_test		\
 	rbt_test		\
-	rbtdb_test		\
 	rdata_test		\
 	rdataset_test		\
 	rdatasetstats_test	\

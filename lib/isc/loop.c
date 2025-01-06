@@ -46,6 +46,8 @@
  * Private
  */
 
+thread_local isc_loop_t *isc__loop_local = NULL;
+
 static void
 ignore_signal(int sig, void (*handler)(int)) {
 	struct sigaction sa = { .sa_handler = handler };
@@ -137,6 +139,8 @@ loop_walk_cb(uv_handle_t *handle, void *arg) {
 static void
 shutdown_trigger_close_cb(uv_handle_t *handle) {
 	isc_loop_t *loop = uv_handle_get_data(handle);
+
+	loop->shuttingdown = true;
 
 	isc_loop_detach(&loop);
 }
@@ -261,8 +265,10 @@ loop_close(isc_loop_t *loop) {
 static void *
 loop_thread(void *arg) {
 	isc_loop_t *loop = (isc_loop_t *)arg;
+	/* Initialize the thread_local variables*/
 
-	/* Initialize the thread_local variable */
+	REQUIRE(isc__loop_local == NULL || isc__loop_local == loop);
+	isc__loop_local = loop;
 
 	isc__tid_init(loop->tid);
 
@@ -281,6 +287,8 @@ loop_thread(void *arg) {
 
 	r = uv_run(&loop->loop, UV_RUN_DEFAULT);
 	UV_RUNTIME_CHECK(uv_run, r);
+
+	isc__loop_local = NULL;
 
 	/* Invalidate the loop early */
 	loop->magic = 0;
@@ -566,13 +574,6 @@ isc_loop_main(isc_loopmgr_t *loopmgr) {
 }
 
 isc_loop_t *
-isc_loop_current(isc_loopmgr_t *loopmgr) {
-	REQUIRE(VALID_LOOPMGR(loopmgr));
-
-	return (CURRENT_LOOP(loopmgr));
-}
-
-isc_loop_t *
 isc_loop_get(isc_loopmgr_t *loopmgr, uint32_t tid) {
 	REQUIRE(VALID_LOOPMGR(loopmgr));
 	REQUIRE(tid < loopmgr->nloops);
@@ -614,4 +615,12 @@ isc_loop_now(isc_loop_t *loop) {
 	};
 
 	return (t);
+}
+
+bool
+isc_loop_shuttingdown(isc_loop_t *loop) {
+	REQUIRE(VALID_LOOP(loop));
+	REQUIRE(loop->tid == isc_tid());
+
+	return (loop->shuttingdown);
 }

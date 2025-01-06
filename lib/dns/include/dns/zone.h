@@ -35,10 +35,10 @@
 #include <dns/rdatastruct.h>
 #include <dns/rpz.h>
 #include <dns/types.h>
+#include <dns/xfrin.h>
 #include <dns/zt.h>
 
-/* Define to 1 for detailed reference tracing */
-#undef DNS_ZONE_TRACE
+/* Add -DDNS_ZONE_TRACE=1 to CFLAGS for detailed reference tracing */
 
 typedef enum {
 	dns_zone_none,
@@ -116,6 +116,18 @@ typedef enum {
 	DNS_ZONEKEY___MAX = UINT64_MAX, /* trick to make the ENUM 64-bit wide */
 } dns_zonekey_t;
 
+/*
+ * Zone states
+ */
+typedef enum {
+	DNS_ZONESTATE_XFERRUNNING = 1,
+	DNS_ZONESTATE_XFERDEFERRED,
+	DNS_ZONESTATE_XFERFIRSTREFRESH,
+	DNS_ZONESTATE_SOAQUERY,
+	DNS_ZONESTATE_ANY,
+	DNS_ZONESTATE_AUTOMATIC,
+} dns_zonestate_t;
+
 #ifndef DNS_ZONE_MINREFRESH
 #define DNS_ZONE_MINREFRESH 300 /*%< 5 minutes */
 #endif				/* ifndef DNS_ZONE_MINREFRESH */
@@ -137,12 +149,6 @@ typedef enum {
 	    * exponential backoff */
 #endif	   /* ifndef DNS_ZONE_DEFAULTRETRY */
 
-#define DNS_ZONESTATE_XFERRUNNING  1
-#define DNS_ZONESTATE_XFERDEFERRED 2
-#define DNS_ZONESTATE_SOAQUERY	   3
-#define DNS_ZONESTATE_ANY	   4
-#define DNS_ZONESTATE_AUTOMATIC	   5
-
 ISC_LANG_BEGINDECLS
 
 /***
@@ -160,6 +166,19 @@ dns_zone_create(dns_zone_t **zonep, isc_mem_t *mctx, unsigned int tid);
  *
  * Ensures:
  *\li	'*zonep' refers to a valid zone.
+ */
+
+isc_result_t
+dns_zone_makedb(dns_zone_t *zone, dns_db_t **dbp);
+/*%<
+ *	Creates a new empty database for the 'zone'.
+ *
+ * Requires:
+ *\li	'zone' to be a valid zone.
+ *\li	'dbp' to point to NULL pointer.
+ *
+ * Returns:
+ *\li	dns_db_create() error codes.
  */
 
 void
@@ -1478,6 +1497,53 @@ dns_zone_getsigresigninginterval(dns_zone_t *zone);
  * \li	'zone' to be a valid zone.
  */
 
+isc_sockaddr_t
+dns_zone_getsourceaddr(dns_zone_t *zone);
+/*%<
+ * Get the zone's source address from which it has last contacted the current
+ * primary server.
+ *
+ * Requires:
+ * \li	'zone' to be a valid zone.
+ * \li	'zone' has a non-empty primaries list.
+ */
+
+isc_sockaddr_t
+dns_zone_getprimaryaddr(dns_zone_t *zone);
+/*%<
+ * Get the zone's current primary server.
+ *
+ * Requires:
+ * \li	'zone' to be a valid zone.
+ * \li	'zone' has a non-empty primaries list.
+ */
+
+isc_time_t
+dns_zone_getxfrintime(const dns_zone_t *zone);
+/*%<
+ * Get the start time of the zone's latest major step before an incoming zone
+ * transfer is initiated. The time is set to the current time before the
+ * precursory SOA query is queued, then it gets reset when the query starts,
+ * when the query restarts (using another transport or another primary server),
+ * when an incoming zone transfer is initated and deferred, and, finally, when
+ * it gets started.
+ *
+ * Requires:
+ * \li	'zone' to be a valid zone.
+ */
+
+dns_transport_type_t
+dns_zone_getrequesttransporttype(dns_zone_t *zone);
+/*%<
+ * Get the transport type used for the SOA query to the current primary server
+ * before an ongoing incoming zone transfer is lanunched. When the transfer is
+ * already running, this information should be retrieved from the xfrin object
+ * instead, using the dns_xfrin_gettransporttype() function.
+ *
+ * Requires:
+ * \li	'zone' to be a valid zone.
+ */
+
 void
 dns_zone_setnotifytype(dns_zone_t *zone, dns_notifytype_t notifytype);
 /*%<
@@ -1548,7 +1614,7 @@ isc_result_t
 dns_zone_setkeydirectory(dns_zone_t *zone, const char *directory);
 /*%<
  *	Sets the name of the directory where private keys used for
- *	online signing of dynamic zones are found.
+ *	online signing or dynamic zones are found.
  *
  * Require:
  *\li	'zone' to be a valid zone.
@@ -1571,10 +1637,33 @@ dns_zone_getkeydirectory(dns_zone_t *zone);
  *	Pointer to null-terminated file name, or NULL.
  */
 
+void
+dns_zone_setkeystores(dns_zone_t *zone, dns_keystorelist_t *keystores);
+/*%<
+ *	Sets the keystore list where private keys used for
+ *	online signing or dynamic zones are found.
+ *
+ * Require:
+ *\li	'zone' to be a valid zone.
+ */
+
+dns_keystorelist_t *
+dns_zone_getkeystores(dns_zone_t *zone);
+/*%<
+ *	Gets the keystore list where private keys used for
+ *	online signing or dynamic zones are found.
+ *
+ * Require:
+ *\li	'zone' to be a valid zone.
+ *
+ * Returns:
+ *	Pointer to the keystore list, or NULL.
+ */
+
 isc_result_t
 dns_zone_getdnsseckeys(dns_zone_t *zone, dns_db_t *db, dns_dbversion_t *ver,
 		       isc_stdtime_t now, dns_dnsseckeylist_t *keys);
-/*%
+/*%<
  * Find DNSSEC keys used for signing with dnssec-policy. Load these keys
  * into 'keys'.
  *
@@ -1587,9 +1676,28 @@ dns_zone_getdnsseckeys(dns_zone_t *zone, dns_db_t *db, dns_dbversion_t *ver,
  *\li	Error
  */
 
+isc_result_t
+dns_zone_findkeys(dns_zone_t *zone, dns_db_t *db, dns_dbversion_t *ver,
+		  isc_stdtime_t now, isc_mem_t *mctx, unsigned int maxkeys,
+		  dst_key_t **keys, unsigned int *nkeys);
+/*%<
+ * Finds a set of zone keys. Searches in the applicable key stores for the
+ * given 'zone' if there is a dnssec-policy attached, otherwise it looks up
+ * the keys in the zone's key-directory. The found keys are loaded into 'keys'.
+ *
+ * Requires:
+ *\li	'zone' to be a valid initialised zone.
+ *\li	'mctx' is not NULL.
+ *\li	'keys' is not NULL and has enough space form 'nkeys' keys.
+ *\li	'nkeys' is not NULL.
+ *
+ * Returns:
+ *\li	#ISC_R_SUCCESS
+ *\li	Error
+ */
+
 void
-dns_zonemgr_create(isc_mem_t *mctx, isc_loopmgr_t *loopmgr, isc_nm_t *netmgr,
-		   dns_zonemgr_t **zmgrp);
+dns_zonemgr_create(isc_mem_t *mctx, isc_nm_t *netmgr, dns_zonemgr_t **zmgrp);
 /*%<
  * Create a zone manager.
  *
@@ -1780,13 +1888,37 @@ dns_zonemgr_getserialqueryrate(dns_zonemgr_t *zmgr);
  */
 
 unsigned int
-dns_zonemgr_getcount(dns_zonemgr_t *zmgr, int state);
+dns_zonemgr_getcount(dns_zonemgr_t *zmgr, dns_zonestate_t state);
 /*%<
  *	Returns the number of zones in the specified state.
  *
  * Requires:
  *\li	'zmgr' to be a valid zone manager.
- *\li	'state' to be a valid DNS_ZONESTATE_ constant.
+ *\li	'state' to be a valid DNS_ZONESTATE_ enum.
+ */
+
+isc_result_t
+dns_zone_getxfr(dns_zone_t *zone, dns_xfrin_t **xfrp, bool *is_firstrefresh,
+		bool *is_running, bool *is_deferred, bool *is_presoa,
+		bool *is_pending, bool *needs_refresh);
+/*%<
+ *	Returns the xfrin associated with the zone (if any) with the current
+ * 	transfer states (as booleans). When no longer needed, the returned xfrin
+ * 	must be detached.
+ *
+ * Requires:
+ *\li	'zone' to be a valid zone.
+ *\li	'xfrp' to be non NULL and '*xfrp' to be NULL.
+ *\li	'is_firstrefresh' to be non NULL.
+ *\li	'is_running' to be non NULL.
+ *\li	'is_deferred' to be non NULL.
+ *\li	'is_presoa' to be non NULL.
+ *\li	'is_pending' to be non NULL.
+ *\li	'needs_refresh' to be non NULL.
+ *
+ * Returns:
+ *	ISC_R_SUCCESS	transfer information is returned
+ *	ISC_R_FAILURE	error while trying to get the transfer information
  */
 
 void

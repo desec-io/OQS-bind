@@ -27,9 +27,7 @@ Description
 ~~~~~~~~~~~
 
 :program:`dnssec-keygen` generates keys for DNSSEC (Secure DNS), as defined in
-:rfc:`2535` and :rfc:`4034`. It can also generate keys for use with TSIG
-(Transaction Signatures) as defined in :rfc:`2845`, or TKEY (Transaction
-Key) as defined in :rfc:`2930`.
+:rfc:`2535` and :rfc:`4034`.
 
 The ``name`` of the key is specified on the command line. For DNSSEC
 keys, this must match the name of the zone for which the key is being
@@ -107,7 +105,13 @@ Options
 .. option:: -f flag
 
    This option sets the specified flag in the flag field of the KEY/DNSKEY record.
-   The only recognized flags are KSK (Key-Signing Key) and REVOKE.
+   The only recognized flags are ZSK (Zone-Signing Key), KSK (Key-Signing Key)
+   and REVOKE.
+
+   Note that ZSK is not a physical flag in the DNSKEY record, it is merely used
+   to explicitly tell that you want to create a ZSK. Setting :option:`-f` in
+   conjunction with :option:`-k` will result in generating keys that only
+   match the given role set with this option.
 
 .. option:: -F
 

@@ -67,7 +67,6 @@ options {\n\
 	interface-interval 60;\n\
 	listen-on {any;};\n\
 	listen-on-v6 {any;};\n\
-#	lock-file \"" NAMED_LOCALSTATEDIR "/run/named/named.lock\";\n\
 	match-mapped-addresses no;\n\
 	max-ixfr-ratio 100%;\n\
 	max-rsa-exponent-size 0; /* no limit */\n\
@@ -133,6 +132,8 @@ options {\n\
 	/* view */\n\
 	allow-new-zones no;\n\
 	allow-notify {none;};\n\
+	allow-proxy {none;};\n\
+	allow-proxy-on {any;};\n\
 	allow-query-cache { localnets; localhost; };\n\
 	allow-query-cache-on { any; };\n\
 	allow-recursion { localnets; localhost; };\n\
@@ -188,8 +189,6 @@ options {\n\
 	request-expire true;\n\
 	request-ixfr true;\n\
 	require-server-cookie no;\n\
-	resolver-nonbackoff-tries 3;\n\
-	resolver-retry-interval 800; /* in milliseconds */\n\
 	root-key-sentinel yes;\n\
 	servfail-ttl 1;\n\
 #	sortlist <none>\n\
@@ -201,13 +200,14 @@ options {\n\
 	synth-from-dnssec yes;\n\
 #	topology <none>\n\
 	transfer-format many-answers;\n\
+	resolver-use-dns64 false;\n\
 	v6-bias 50;\n\
 	zero-no-soa-ttl-cache no;\n\
 \n\
 	/* zone */\n\
 	allow-query {any;};\n\
 	allow-query-on {any;};\n\
-	allow-transfer {any;};\n\
+	allow-transfer {none;};\n\
 #	also-notify <none>\n\
 	check-integrity yes;\n\
 	check-mx-cname warn;\n\
@@ -298,6 +298,7 @@ dnssec-policy \"default\" {\n\
 	publish-safety " DNS_KASP_PUBLISH_SAFETY "; \n\
 	retire-safety " DNS_KASP_RETIRE_SAFETY "; \n\
 	purge-keys " DNS_KASP_PURGE_KEYS "; \n\
+	signatures-jitter " DNS_KASP_SIG_JITTER "; \n\
 	signatures-refresh " DNS_KASP_SIG_REFRESH "; \n\
 	signatures-validity " DNS_KASP_SIG_VALIDITY "; \n\
 	signatures-validity-dnskey " DNS_KASP_SIG_VALIDITY_DNSKEY "; \n\
@@ -327,14 +328,14 @@ dnssec-policy \"insecure\" {\n\
 			    "# END TRUST ANCHORS\n\
 \n\
 primaries " DEFAULT_IANA_ROOT_ZONE_PRIMARIES " {\n\
-	2001:500:200::b;	# b.root-servers.net\n\
+	2801:1b8:10::b;		# b.root-servers.net\n\
 	2001:500:2::c;		# c.root-servers.net\n\
 	2001:500:2f::f;		# f.root-servers.net\n\
 	2001:500:12::d0d;	# g.root-servers.net\n\
 	2001:7fd::1;		# k.root-servers.net\n\
 	2620:0:2830:202::132;	# xfr.cjr.dns.icann.org\n\
 	2620:0:2d0:202::132;	# xfr.lax.dns.icann.org\n\
-	199.9.14.201;		# b.root-servers.net\n\
+	170.247.170.2;		# b.root-servers.net\n\
 	192.33.4.12;		# c.root-servers.net\n\
 	192.5.5.241;		# f.root-servers.net\n\
 	192.112.36.4;		# g.root-servers.net\n\

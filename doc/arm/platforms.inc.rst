@@ -44,12 +44,11 @@ Current versions of BIND 9 are fully supported and regularly tested on the
 following systems:
 
 -  Debian 11, 12
--  Ubuntu LTS 20.04, 22.04
--  Fedora 38
+-  Ubuntu LTS 20.04, 22.04, 24.04
+-  Fedora 40
 -  Red Hat Enterprise Linux / CentOS / Oracle Linux 8, 9
--  FreeBSD 12.4, 13.2
--  OpenBSD 7.3
--  Alpine Linux 3.18
+-  FreeBSD 13.3, 14.0
+-  Alpine Linux 3.20
 
 The amd64 CPU architecture is fully supported and regularly tested.
 
@@ -65,6 +64,7 @@ regularly by ISC.
 -  macOS 10.12+
 -  Solaris 11
 -  NetBSD
+-  OpenBSD
 -  Other Linux distributions still supported by their vendors, such as:
 
    -  Ubuntu 22.10+

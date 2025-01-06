@@ -21,6 +21,7 @@ options {
 	pid-file "named.pid";
 	listen-on { 10.53.0.2; };
 	listen-on-v6 { none; };
+	allow-transfer { any; };
 	recursion no;
 	notify yes;
 	dnssec-validation yes;
@@ -60,15 +61,15 @@ dnssec-policy "not-enough-hours-in-day" {
 		zsk key-directory lifetime unlimited algorithm @DEFAULT_ALGORITHM@;
 	};
 
-	/* validity 500 days, resign in 449 days */
+	/* validity 500 days, with one 1 day jitter (resign in 499 days) */
+	signatures-jitter 1d;
 	signatures-validity-dnskey 500d;
 	signatures-validity 500d;
-	signatures-refresh 449d;
 };
 
 zone "." {
 	type hint;
-	file "../../common/root.hint";
+	file "../../_common/root.hint";
 };
 
 zone "trusted" {
@@ -204,6 +205,13 @@ zone "hours-vs-days" {
 zone "too-many-iterations" {
 	type primary;
 	file "too-many-iterations.db.signed";
+};
+
+zone "lazy-ksk" {
+	type primary;
+	file "lazy-ksk.db";
+	dnssec-policy "dnssec";
+	allow-update { any; };
 };
 
 include "trusted.conf";

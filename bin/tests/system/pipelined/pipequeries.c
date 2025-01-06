@@ -46,7 +46,7 @@
 		if ((x) != ISC_R_SUCCESS) {                  \
 			fprintf(stderr, "I:%s: %s\n", (str), \
 				isc_result_totext(x));       \
-			exit(-1);                            \
+			exit(EXIT_FAILURE);                  \
 		}                                            \
 	}
 
@@ -76,10 +76,11 @@ recvresponse(void *arg) {
 	if (result != ISC_R_SUCCESS) {
 		fprintf(stderr, "I:request event result: %s\n",
 			isc_result_totext(result));
-		exit(-1);
+		exit(EXIT_FAILURE);
 	}
 
-	dns_message_create(mctx, DNS_MESSAGE_INTENTPARSE, &response);
+	dns_message_create(mctx, NULL, NULL, DNS_MESSAGE_INTENTPARSE,
+			   &response);
 
 	result = dns_request_getresponse(request, response,
 					 DNS_MESSAGEPARSE_PRESERVEORDER);
@@ -89,7 +90,7 @@ recvresponse(void *arg) {
 		result = dns_result_fromrcode(response->rcode);
 		fprintf(stderr, "I:response rcode: %s\n",
 			isc_result_totext(result));
-		exit(-1);
+		exit(EXIT_FAILURE);
 	}
 	if (response->counts[DNS_SECTION_ANSWER] != 1U) {
 		fprintf(stderr, "I:response answer count (%u!=1)\n",
@@ -141,7 +142,8 @@ sendquery(void) {
 				   dns_rootname, 0, NULL);
 	CHECK("dns_name_fromtext", result);
 
-	dns_message_create(mctx, DNS_MESSAGE_INTENTRENDER, &message);
+	dns_message_create(mctx, NULL, NULL, DNS_MESSAGE_INTENTRENDER,
+			   &message);
 
 	message->opcode = dns_opcode_query;
 	message->flags |= DNS_MESSAGEFLAG_RD;
@@ -232,7 +234,7 @@ main(int argc, char *argv[]) {
 			if (result != ISC_R_SUCCESS) {
 				fprintf(stderr, "bad port '%s'\n",
 					isc_commandline_argument);
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			break;
 		case 'r':
@@ -275,7 +277,7 @@ main(int argc, char *argv[]) {
 
 	RUNCHECK(dst_lib_init(mctx, NULL));
 
-	RUNCHECK(dns_dispatchmgr_create(mctx, netmgr, &dispatchmgr));
+	RUNCHECK(dns_dispatchmgr_create(mctx, loopmgr, netmgr, &dispatchmgr));
 
 	RUNCHECK(dns_dispatch_createudp(
 		dispatchmgr, have_src ? &srcaddr : &bind_any, &dispatchv4));

@@ -61,6 +61,9 @@ struct dns_dbimplementation {
  * Built in database implementations are registered here.
  */
 
+#include "db_p.h"
+#include "qpcache_p.h"
+#include "qpzone_p.h"
 #include "rbtdb_p.h"
 
 unsigned int dns_pps = 0U;
@@ -70,19 +73,36 @@ static isc_rwlock_t implock;
 static isc_once_t once = ISC_ONCE_INIT;
 
 static dns_dbimplementation_t rbtimp;
+static dns_dbimplementation_t qpimp;
+static dns_dbimplementation_t qpzoneimp;
 
 static void
 initialize(void) {
 	isc_rwlock_init(&implock);
 
-	rbtimp.name = "rbt";
-	rbtimp.create = dns__rbtdb_create;
-	rbtimp.mctx = NULL;
-	rbtimp.driverarg = NULL;
-	ISC_LINK_INIT(&rbtimp, link);
-
 	ISC_LIST_INIT(implementations);
+
+	rbtimp = (dns_dbimplementation_t){
+		.name = "rbt",
+		.create = dns__rbtdb_create,
+		.link = ISC_LINK_INITIALIZER,
+	};
+
+	qpimp = (dns_dbimplementation_t){
+		.name = "qpcache",
+		.create = dns__qpcache_create,
+		.link = ISC_LINK_INITIALIZER,
+	};
+
+	qpzoneimp = (dns_dbimplementation_t){
+		.name = "qpzone",
+		.create = dns__qpzone_create,
+		.link = ISC_LINK_INITIALIZER,
+	};
+
 	ISC_LIST_APPEND(implementations, &rbtimp, link);
+	ISC_LIST_APPEND(implementations, &qpimp, link);
+	ISC_LIST_APPEND(implementations, &qpzoneimp, link);
 }
 
 static dns_dbimplementation_t *
@@ -607,6 +627,8 @@ dns_db_createiterator(dns_db_t *db, unsigned int flags,
 
 	REQUIRE(DNS_DB_VALID(db));
 	REQUIRE(iteratorp != NULL && *iteratorp == NULL);
+	REQUIRE((flags & (DNS_DB_NSEC3ONLY | DNS_DB_NONSEC3)) !=
+		(DNS_DB_NSEC3ONLY | DNS_DB_NONSEC3));
 
 	if (db->methods->createiterator != NULL) {
 		return (db->methods->createiterator(db, flags, iteratorp));
@@ -935,11 +957,11 @@ dns_db_setsigningtime(dns_db_t *db, dns_rdataset_t *rdataset,
 }
 
 isc_result_t
-dns__db_getsigningtime(dns_db_t *db, dns_rdataset_t *rdataset,
-		       dns_name_t *name DNS__DB_FLARG) {
+dns_db_getsigningtime(dns_db_t *db, isc_stdtime_t *resign, dns_name_t *name,
+		      dns_typepair_t *typepair) {
 	if (db->methods->getsigningtime != NULL) {
-		return ((db->methods->getsigningtime)(db, rdataset,
-						      name DNS__DB_FLARG_PASS));
+		return ((db->methods->getsigningtime)(db, resign, name,
+						      typepair));
 	}
 	return (ISC_R_NOTFOUND);
 }
@@ -1135,4 +1157,16 @@ dns_db_deletedata(dns_db_t *db, dns_dbnode_t *node, void *data) {
 	if (db->methods->deletedata != NULL) {
 		(db->methods->deletedata)(db, node, data);
 	}
+}
+
+isc_result_t
+dns_db_nodefullname(dns_db_t *db, dns_dbnode_t *node, dns_name_t *name) {
+	REQUIRE(db != NULL);
+	REQUIRE(node != NULL);
+	REQUIRE(name != NULL);
+
+	if (db->methods->nodefullname != NULL) {
+		return ((db->methods->nodefullname)(db, node, name));
+	}
+	return (ISC_R_NOTIMPLEMENTED);
 }

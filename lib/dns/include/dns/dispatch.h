@@ -58,7 +58,7 @@
 
 #include <dns/types.h>
 
-#undef DNS_DISPATCH_TRACE
+/* Add -DDNS_DISPATCH_TRACE=1 to CFLAGS for detailed reference tracing */
 
 ISC_LANG_BEGINDECLS
 
@@ -69,17 +69,17 @@ ISC_LANG_BEGINDECLS
 struct dns_dispatchset {
 	isc_mem_t	*mctx;
 	dns_dispatch_t **dispatches;
-	int		 ndisp;
-	int		 cur;
-	isc_mutex_t	 lock;
+	uint32_t	 ndisp;
 };
 
-/*
- */
-#define DNS_DISPATCHOPT_FIXEDID 0x00000001U
+typedef enum dns_dispatchopt {
+	DNS_DISPATCHOPT_FIXEDID = 1 << 0,
+	DNS_DISPATCHOPT_UNSHARED = 1 << 1, /* Don't share this connection */
+} dns_dispatchopt_t;
 
 isc_result_t
-dns_dispatchmgr_create(isc_mem_t *mctx, isc_nm_t *nm, dns_dispatchmgr_t **mgrp);
+dns_dispatchmgr_create(isc_mem_t *mctx, isc_loopmgr_t *loopmgr, isc_nm_t *nm,
+		       dns_dispatchmgr_t **mgrp);
 /*%<
  * Creates a new dispatchmgr object, and sets the available ports
  * to the default range (1024-65535).
@@ -184,7 +184,8 @@ dns_dispatch_createudp(dns_dispatchmgr_t *mgr, const isc_sockaddr_t *localaddr,
 
 isc_result_t
 dns_dispatch_createtcp(dns_dispatchmgr_t *mgr, const isc_sockaddr_t *localaddr,
-		       const isc_sockaddr_t *destaddr, dns_dispatch_t **dispp);
+		       const isc_sockaddr_t *destaddr,
+		       dns_dispatchopt_t options, dns_dispatch_t **dispp);
 /*%<
  * Create a new TCP dns_dispatch.
  *
@@ -263,12 +264,12 @@ typedef void (*dispatch_cb_t)(isc_result_t eresult, isc_region_t *region,
 			      void *cbarg);
 
 isc_result_t
-dns_dispatch_add(dns_dispatch_t *disp, isc_loop_t *loop, unsigned int options,
-		 unsigned int timeout, const isc_sockaddr_t *dest,
-		 dns_transport_t *transport, isc_tlsctx_cache_t *tlsctx_cache,
-		 dispatch_cb_t connected, dispatch_cb_t sent,
-		 dispatch_cb_t response, void *arg, dns_messageid_t *idp,
-		 dns_dispentry_t **resp);
+dns_dispatch_add(dns_dispatch_t *disp, isc_loop_t *loop,
+		 dns_dispatchopt_t options, unsigned int timeout,
+		 const isc_sockaddr_t *dest, dns_transport_t *transport,
+		 isc_tlsctx_cache_t *tlsctx_cache, dispatch_cb_t connected,
+		 dispatch_cb_t sent, dispatch_cb_t response, void *arg,
+		 dns_messageid_t *idp, dns_dispentry_t **resp);
 /*%<
  * Add a response entry for this dispatch.
  *
@@ -358,7 +359,7 @@ dns_dispatchset_get(dns_dispatchset_t *dset);
 
 isc_result_t
 dns_dispatchset_create(isc_mem_t *mctx, dns_dispatch_t *source,
-		       dns_dispatchset_t **dsetp, int n);
+		       dns_dispatchset_t **dsetp, uint32_t n);
 /*%<
  * Given a valid dispatch 'source', create a dispatch set containing
  * 'n' UDP dispatches, with the remainder filled out by clones of the

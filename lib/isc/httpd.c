@@ -90,6 +90,7 @@ struct isc_httpdurl {
 /*% http client */
 struct isc_httpd {
 	unsigned int magic; /* HTTPD_MAGIC */
+	isc_refcount_t references;
 
 	isc_httpdmgr_t *mgr; /*%< our parent */
 	ISC_LINK(isc_httpd_t) link;
@@ -111,6 +112,18 @@ struct isc_httpd {
 	isc_time_t if_modified_since;
 };
 
+#if ISC_HTTPD_TRACE
+#define isc_httpd_ref(ptr)   isc_httpd__ref(ptr, __func__, __FILE__, __LINE__)
+#define isc_httpd_unref(ptr) isc_httpd__unref(ptr, __func__, __FILE__, __LINE__)
+#define isc_httpd_attach(ptr, ptrp) \
+	isc_httpd__attach(ptr, ptrp, __func__, __FILE__, __LINE__)
+#define isc_httpd_detach(ptrp) \
+	isc_httpd__detach(ptrp, __func__, __FILE__, __LINE__)
+ISC_REFCOUNT_TRACE_DECL(isc_httpd);
+#else
+ISC_REFCOUNT_DECL(isc_httpd);
+#endif
+
 struct isc_httpdmgr {
 	unsigned int magic; /* HTTPDMGR_MAGIC */
 	isc_refcount_t references;
@@ -130,6 +143,20 @@ struct isc_httpdmgr {
 	isc_httpdaction_t *render_404;
 	isc_httpdaction_t *render_500;
 };
+
+#if ISC_HTTPD_TRACE
+#define isc_httpdmgr_ref(ptr) \
+	isc_httpdmgr__ref(ptr, __func__, __FILE__, __LINE__)
+#define isc_httpdmgr_unref(ptr) \
+	isc_httpdmgr__unref(ptr, __func__, __FILE__, __LINE__)
+#define isc_httpdmgr_attach(ptr, ptrp) \
+	isc_httpdmgr__attach(ptr, ptrp, __func__, __FILE__, __LINE__)
+#define isc_httpdmgr_detach(ptrp) \
+	isc_httpdmgr__detach(ptrp, __func__, __FILE__, __LINE__)
+ISC_REFCOUNT_TRACE_DECL(isc_httpdmgr);
+#else
+ISC_REFCOUNT_DECL(isc_httpdmgr);
+#endif
 
 typedef struct isc_httpd_sendreq {
 	isc_mem_t *mctx;
@@ -198,14 +225,6 @@ static isc_httpdaction_t render_500;
 static void (*finishhook)(void) = NULL;
 #endif /* ENABLE_AFL */
 
-static void
-destroy_httpdmgr(isc_httpdmgr_t *);
-
-static void
-httpdmgr_attach(isc_httpdmgr_t *, isc_httpdmgr_t **);
-static void
-httpdmgr_detach(isc_httpdmgr_t **);
-
 isc_result_t
 isc_httpdmgr_create(isc_nm_t *nm, isc_mem_t *mctx, isc_sockaddr_t *addr,
 		    isc_httpdclientok_t *client_ok,
@@ -253,31 +272,6 @@ cleanup:
 }
 
 static void
-httpdmgr_attach(isc_httpdmgr_t *source, isc_httpdmgr_t **targetp) {
-	REQUIRE(VALID_HTTPDMGR(source));
-	REQUIRE(targetp != NULL && *targetp == NULL);
-
-	isc_refcount_increment(&source->references);
-
-	*targetp = source;
-}
-
-static void
-httpdmgr_detach(isc_httpdmgr_t **httpdmgrp) {
-	isc_httpdmgr_t *httpdmgr = NULL;
-
-	REQUIRE(httpdmgrp != NULL);
-	REQUIRE(VALID_HTTPDMGR(*httpdmgrp));
-
-	httpdmgr = *httpdmgrp;
-	*httpdmgrp = NULL;
-
-	if (isc_refcount_decrement(&httpdmgr->references) == 1) {
-		destroy_httpdmgr(httpdmgr);
-	}
-}
-
-static void
 destroy_httpdmgr(isc_httpdmgr_t *httpdmgr) {
 	isc_refcount_destroy(&httpdmgr->references);
 
@@ -312,6 +306,12 @@ destroy_httpdmgr(isc_httpdmgr_t *httpdmgr) {
 	isc_mem_putanddetach(&httpdmgr->mctx, httpdmgr, sizeof(isc_httpdmgr_t));
 }
 
+#if ISC_HTTPD_TRACE
+ISC_REFCOUNT_TRACE_IMPL(isc_httpdmgr, destroy_httpdmgr)
+#else
+ISC_REFCOUNT_IMPL(isc_httpdmgr, destroy_httpdmgr);
+#endif
+
 static bool
 name_match(const struct phr_header *header, const char *match) {
 	size_t match_len = strlen(match);
@@ -333,8 +333,10 @@ value_match(const struct phr_header *header, const char *match) {
 	limit = header->value_len - match_len + 1;
 
 	for (size_t i = 0; i < limit; i++) {
-		if (isspace(header->value[i])) {
-			while (i < limit && isspace(header->value[i])) {
+		if (isspace((unsigned char)header->value[i])) {
+			while (i < limit &&
+			       isspace((unsigned char)header->value[i]))
+			{
 				i++;
 			}
 			continue;
@@ -558,7 +560,7 @@ httpd_free(isc_httpd_t *httpd) {
 
 	isc_mem_put(httpdmgr->mctx, httpd, sizeof(*httpd));
 
-	httpdmgr_detach(&httpdmgr);
+	isc_httpdmgr_detach(&httpdmgr);
 
 #if ENABLE_AFL
 	if (finishhook != NULL) {
@@ -566,6 +568,12 @@ httpd_free(isc_httpd_t *httpd) {
 	}
 #endif /* ENABLE_AFL */
 }
+
+#if ISC_HTTPD_TRACE
+ISC_REFCOUNT_TRACE_IMPL(isc_httpd, httpd_free)
+#else
+ISC_REFCOUNT_IMPL(isc_httpd, httpd_free);
+#endif
 
 static void
 isc__httpd_sendreq_free(isc_httpd_sendreq_t *req) {
@@ -596,6 +604,8 @@ isc__httpd_sendreq_new(isc_httpd_t *httpd) {
 
 	isc_buffer_initnull(&req->bodybuffer);
 
+	isc_httpd_attach(httpd, &req->httpd);
+
 	return (req);
 }
 
@@ -609,11 +619,12 @@ new_httpd(isc_httpdmgr_t *httpdmgr, isc_nmhandle_t *handle) {
 	*httpd = (isc_httpd_t){
 		.magic = HTTPD_MAGIC,
 		.link = ISC_LINK_INITIALIZER,
+		.references = ISC_REFCOUNT_INITIALIZER(1),
 	};
 
 	isc_nmhandle_attach(handle, &httpd->handle);
 
-	httpdmgr_attach(httpdmgr, &httpd->mgr);
+	isc_httpdmgr_attach(httpdmgr, &httpd->mgr);
 
 	LOCK(&httpdmgr->lock);
 	ISC_LIST_APPEND(httpdmgr->running, httpd, link);
@@ -747,10 +758,11 @@ httpd_compress(isc_httpd_sendreq_t *req) {
 #endif /* ifdef HAVE_ZLIB */
 
 static void
-prepare_response(isc_httpdmgr_t *mgr, isc_httpd_t *httpd,
-		 isc_httpd_sendreq_t **reqp) {
-	isc_httpd_sendreq_t *req = NULL;
-	isc_time_t now;
+prepare_response(void *arg) {
+	isc_httpd_sendreq_t *req = arg;
+	isc_httpd_t *httpd = req->httpd;
+	isc_httpdmgr_t *mgr = httpd->mgr;
+	isc_time_t now = isc_time_now();
 	char datebuf[ISC_FORMATHTTPTIMESTAMP_SIZE];
 	const char *path = "/";
 	size_t path_len = 1;
@@ -759,9 +771,8 @@ prepare_response(isc_httpdmgr_t *mgr, isc_httpd_t *httpd,
 	isc_result_t result;
 
 	REQUIRE(VALID_HTTPD(httpd));
-	REQUIRE(reqp != NULL && *reqp == NULL);
+	REQUIRE(req != NULL);
 
-	now = isc_time_now();
 	isc_time_formathttptimestamp(&now, datebuf, sizeof(datebuf));
 
 	if (httpd->up.field_set & (1 << ISC_UF_PATH)) {
@@ -776,8 +787,6 @@ prepare_response(isc_httpdmgr_t *mgr, isc_httpd_t *httpd,
 		}
 	}
 	UNLOCK(&mgr->lock);
-
-	req = isc__httpd_sendreq_new(httpd);
 
 	if (url == NULL) {
 		result = mgr->render_404(httpd, NULL, NULL, &req->retcode,
@@ -872,14 +881,20 @@ prepare_response(isc_httpdmgr_t *mgr, isc_httpd_t *httpd,
 	}
 	httpd->recvlen -= httpd->consume;
 	httpd->consume = 0;
+}
+
+static void
+prepare_response_done(void *arg) {
+	isc_region_t r;
+	isc_httpd_sendreq_t *req = arg;
+	isc_httpd_t *httpd = req->httpd;
 
 	/*
-	 * We don't need to attach to httpd here because it gets only cleaned
-	 * when the last handle has been detached
+	 * Determine total response size.
 	 */
-	req->httpd = httpd;
+	isc_buffer_usedregion(req->sendbuffer, &r);
 
-	*reqp = req;
+	isc_nm_send(httpd->handle, &r, httpd_senddone, req);
 }
 
 static void
@@ -887,8 +902,6 @@ httpd_request(isc_nmhandle_t *handle, isc_result_t eresult,
 	      isc_region_t *region, void *arg) {
 	isc_httpd_t *httpd = arg;
 	isc_httpdmgr_t *mgr = httpd->mgr;
-	isc_httpd_sendreq_t *req = NULL;
-	isc_region_t r;
 	size_t last_len = 0;
 	isc_result_t result;
 
@@ -939,22 +952,17 @@ httpd_request(isc_nmhandle_t *handle, isc_result_t eresult,
 		goto close_readhandle;
 	}
 
-	prepare_response(mgr, httpd, &req);
-
-	/*
-	 * Determine total response size.
-	 */
-	isc_buffer_usedregion(req->sendbuffer, &r);
-
+	isc_httpd_sendreq_t *req = isc__httpd_sendreq_new(httpd);
 	isc_nmhandle_ref(handle);
-	isc_nm_send(handle, &r, httpd_senddone, req);
+	isc_work_enqueue(isc_loop(), prepare_response, prepare_response_done,
+			 req);
 	return;
 
 close_readhandle:
 	isc_nmhandle_close(httpd->handle);
 	isc_nmhandle_detach(&httpd->handle);
 
-	httpd_free(httpd);
+	isc_httpd_detach(&httpd);
 }
 
 void
@@ -985,7 +993,7 @@ isc_httpdmgr_shutdown(isc_httpdmgr_t **httpdmgrp) {
 
 	isc_nmsocket_close(&httpdmgr->sock);
 
-	httpdmgr_detach(&httpdmgr);
+	isc_httpdmgr_detach(&httpdmgr);
 }
 
 static void
@@ -1055,6 +1063,7 @@ httpd_senddone(isc_nmhandle_t *handle, isc_result_t eresult, void *arg) {
 detach:
 	isc_nmhandle_detach(&handle);
 	isc__httpd_sendreq_free(req);
+	isc_httpd_detach(&httpd);
 }
 
 isc_result_t

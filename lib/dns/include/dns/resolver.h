@@ -59,7 +59,7 @@
 #include <dns/fixedname.h>
 #include <dns/types.h>
 
-#undef DNS_RESOLVER_TRACE
+/* Add -DDNS_RESOLVER_TRACE=1 to CFLAGS for detailed reference tracing */
 
 ISC_LANG_BEGINDECLS
 
@@ -93,7 +93,6 @@ struct dns_fetchresponse {
 	isc_loop_t	     *loop;
 	isc_job_cb	      cb;
 	void		     *arg;
-	enum { FETCHDONE, TRYSTALE } type;
 	ISC_LINK(dns_fetchresponse_t) link;
 };
 
@@ -130,7 +129,6 @@ enum {
 						* on ip6.arpa. */
 	DNS_FETCHOPT_NOFORWARD = 1 << 15,      /*%< Do not use forwarders if
 						* possible. */
-	DNS_FETCHOPT_TRYSTALE_ONTIMEOUT = 1 << 16,
 
 	/*% EDNS version bits: */
 	DNS_FETCHOPT_EDNSVERSIONSET = 1 << 23,
@@ -165,9 +163,8 @@ enum {
 #define DNS_QMIN_MAX_NO_DELEGATION 3
 
 isc_result_t
-dns_resolver_create(dns_view_t *view, isc_loopmgr_t *loopmgr,
-		    unsigned int ndisp, isc_nm_t *nm, unsigned int options,
-		    isc_tlsctx_cache_t *tlsctx_cache,
+dns_resolver_create(dns_view_t *view, isc_loopmgr_t *loopmgr, isc_nm_t *nm,
+		    unsigned int options, isc_tlsctx_cache_t *tlsctx_cache,
 		    dns_dispatch_t *dispatchv4, dns_dispatch_t *dispatchv6,
 		    dns_resolver_t **resp);
 
@@ -183,17 +180,15 @@ dns_resolver_create(dns_view_t *view, isc_loopmgr_t *loopmgr,
  *
  *\li	'view' is a valid view.
  *
- *\li	'ndisp' > 0.
- *
  *\li	'nm' is a valid network manager.
  *
  *\li	'tlsctx_cache' != NULL.
  *
  *\li	'dispatchv4' is a dispatch with an IPv4 UDP socket, or is NULL.
- *	If not NULL, 'ndisp' clones of it will be created by the resolver.
+ *	If not NULL, clones per loop of it will be created by the resolver.
  *
  *\li	'dispatchv6' is a dispatch with an IPv6 UDP socket, or is NULL.
- *	If not NULL, 'ndisp' clones of it will be created by the resolver.
+ *	If not NULL, clones per loop of it will be created by the resolver.
  *
  *\li	resp != NULL && *resp == NULL.
  *
@@ -294,11 +289,10 @@ dns_resolver_createfetch(dns_resolver_t *res, const dns_name_t *name,
  *	we figure out how selective forwarding will work.
  *
  *\li	When the fetch completes (successfully or otherwise), a
- *	dns_fetchresponse_t option is sent to callback 'cb' with
- *	'type' set to FETCHDONE.
+ *	dns_fetchresponse_t option is sent to callback 'cb'.
  *
  *\li	The values of 'rdataset' and 'sigrdataset' will be returned in
- *	the FETCHDONE event.
+ *	the fetch completion event.
  *
  *\li	'client' and 'id' are used for duplicate query detection.  '*client'
  *	must remain stable until after 'action' has been called or
@@ -345,7 +339,7 @@ dns_resolver_cancelfetch(dns_fetch_t *fetch);
  *
  * Notes:
  *
- *\li	If 'fetch' has not completed, post its FETCHDONE event with a
+ *\li	If 'fetch' has not completed, post its completion event with a
  *	result code of #ISC_R_CANCELED.
  *
  * Requires:
@@ -362,7 +356,7 @@ dns_resolver_destroyfetch(dns_fetch_t **fetchp);
  *
  *\li	'*fetchp' is a valid fetch.
  *
- *\li	The caller has received the FETCHDONE event (either because the
+ *\li	The caller has received the fetch completion event (either because the
  *	fetch completed or because dns_resolver_cancelfetch() was called).
  *
  * Ensures:
@@ -521,39 +515,6 @@ void
 dns_resolver_setzeronosoattl(dns_resolver_t *resolver, bool state);
 
 unsigned int
-dns_resolver_getretryinterval(dns_resolver_t *resolver);
-
-void
-dns_resolver_setretryinterval(dns_resolver_t *resolver, unsigned int interval);
-/*%<
- * Sets the amount of time, in milliseconds, that is waited for a reply
- * to a server before another server is tried.  Interacts with the
- * value of dns_resolver_getnonbackofftries() by trying that number of times
- * at this interval, before doing exponential backoff and doubling the interval
- * on each subsequent try, to a maximum of 10 seconds.  Defaults to 800 ms;
- * silently capped at 2000 ms.
- *
- * Requires:
- * \li	resolver to be valid.
- * \li  interval > 0.
- */
-
-unsigned int
-dns_resolver_getnonbackofftries(dns_resolver_t *resolver);
-
-void
-dns_resolver_setnonbackofftries(dns_resolver_t *resolver, unsigned int tries);
-/*%<
- * Sets the number of failures of getting a reply from remote servers for
- * a query before backing off by doubling the retry interval for each
- * subsequent request sent.  Defaults to 3.
- *
- * Requires:
- * \li	resolver to be valid.
- * \li  tries > 0.
- */
-
-unsigned int
 dns_resolver_getoptions(dns_resolver_t *resolver);
 /*%<
  * Get the resolver options.
@@ -612,6 +573,14 @@ dns_resolver_printbadcache(dns_resolver_t *resolver, FILE *fp);
  *
  * Requires:
  * \li	resolver to be valid.
+ */
+
+void
+dns_resolver_setmaxvalidations(dns_resolver_t *resolver, uint32_t max);
+void
+dns_resolver_setmaxvalidationfails(dns_resolver_t *resolver, uint32_t max);
+/*%
+ * Set maximum numbers of validations and maximum validation failures per fetch.
  */
 
 void

@@ -33,7 +33,9 @@
 #include <dns/rdatatype.h>
 #include <dns/resolver.h>
 #include <dns/stats.h>
+#include <dns/transport.h>
 #include <dns/view.h>
+#include <dns/xfrin.h>
 #include <dns/zt.h>
 
 #include <ns/stats.h>
@@ -325,6 +327,8 @@ init_desc(void) {
 	SET_NSSTATDESC(updatebadprereq,
 		       "updates rejected due to prerequisite failure",
 		       "UpdateBadPrereq");
+	SET_NSSTATDESC(recurshighwater, "Recursive clients high-water",
+		       "RecursHighwater");
 	SET_NSSTATDESC(recursclients, "recursing clients", "RecursClients");
 	SET_NSSTATDESC(dns64, "queries answered by DNS64", "DNS64");
 	SET_NSSTATDESC(ratedropped, "responses dropped for rate limits",
@@ -553,8 +557,6 @@ init_desc(void) {
 	SET_SOCKSTATDESC(udp6open, "UDP/IPv6 sockets opened", "UDP6Open");
 	SET_SOCKSTATDESC(tcp4open, "TCP/IPv4 sockets opened", "TCP4Open");
 	SET_SOCKSTATDESC(tcp6open, "TCP/IPv6 sockets opened", "TCP6Open");
-	SET_SOCKSTATDESC(unixopen, "Unix domain sockets opened", "UnixOpen");
-	SET_SOCKSTATDESC(rawopen, "Raw sockets opened", "RawOpen");
 	SET_SOCKSTATDESC(udp4openfail, "UDP/IPv4 socket open failures",
 			 "UDP4OpenFail");
 	SET_SOCKSTATDESC(udp6openfail, "UDP/IPv6 socket open failures",
@@ -563,18 +565,10 @@ init_desc(void) {
 			 "TCP4OpenFail");
 	SET_SOCKSTATDESC(tcp6openfail, "TCP/IPv6 socket open failures",
 			 "TCP6OpenFail");
-	SET_SOCKSTATDESC(unixopenfail, "Unix domain socket open failures",
-			 "UnixOpenFail");
-	SET_SOCKSTATDESC(rawopenfail, "Raw socket open failures",
-			 "RawOpenFail");
 	SET_SOCKSTATDESC(udp4close, "UDP/IPv4 sockets closed", "UDP4Close");
 	SET_SOCKSTATDESC(udp6close, "UDP/IPv6 sockets closed", "UDP6Close");
 	SET_SOCKSTATDESC(tcp4close, "TCP/IPv4 sockets closed", "TCP4Close");
 	SET_SOCKSTATDESC(tcp6close, "TCP/IPv6 sockets closed", "TCP6Close");
-	SET_SOCKSTATDESC(unixclose, "Unix domain sockets closed", "UnixClose");
-	SET_SOCKSTATDESC(fdwatchclose, "FDwatch sockets closed",
-			 "FDWatchClose");
-	SET_SOCKSTATDESC(rawclose, "Raw sockets closed", "RawClose");
 	SET_SOCKSTATDESC(udp4bindfail, "UDP/IPv4 socket bind failures",
 			 "UDP4BindFail");
 	SET_SOCKSTATDESC(udp6bindfail, "UDP/IPv6 socket bind failures",
@@ -583,10 +577,6 @@ init_desc(void) {
 			 "TCP4BindFail");
 	SET_SOCKSTATDESC(tcp6bindfail, "TCP/IPv6 socket bind failures",
 			 "TCP6BindFail");
-	SET_SOCKSTATDESC(unixbindfail, "Unix domain socket bind failures",
-			 "UnixBindFail");
-	SET_SOCKSTATDESC(fdwatchbindfail, "FDwatch socket bind failures",
-			 "FdwatchBindFail");
 	SET_SOCKSTATDESC(udp4connectfail, "UDP/IPv4 socket connect failures",
 			 "UDP4ConnFail");
 	SET_SOCKSTATDESC(udp6connectfail, "UDP/IPv6 socket connect failures",
@@ -595,10 +585,6 @@ init_desc(void) {
 			 "TCP4ConnFail");
 	SET_SOCKSTATDESC(tcp6connectfail, "TCP/IPv6 socket connect failures",
 			 "TCP6ConnFail");
-	SET_SOCKSTATDESC(unixconnectfail, "Unix domain socket connect failures",
-			 "UnixConnFail");
-	SET_SOCKSTATDESC(fdwatchconnectfail, "FDwatch socket connect failures",
-			 "FDwatchConnFail");
 	SET_SOCKSTATDESC(udp4connect, "UDP/IPv4 connections established",
 			 "UDP4Conn");
 	SET_SOCKSTATDESC(udp6connect, "UDP/IPv6 connections established",
@@ -607,48 +593,30 @@ init_desc(void) {
 			 "TCP4Conn");
 	SET_SOCKSTATDESC(tcp6connect, "TCP/IPv6 connections established",
 			 "TCP6Conn");
-	SET_SOCKSTATDESC(unixconnect, "Unix domain connections established",
-			 "UnixConn");
-	SET_SOCKSTATDESC(fdwatchconnect,
-			 "FDwatch domain connections established",
-			 "FDwatchConn");
 	SET_SOCKSTATDESC(tcp4acceptfail, "TCP/IPv4 connection accept failures",
 			 "TCP4AcceptFail");
 	SET_SOCKSTATDESC(tcp6acceptfail, "TCP/IPv6 connection accept failures",
 			 "TCP6AcceptFail");
-	SET_SOCKSTATDESC(unixacceptfail,
-			 "Unix domain connection accept failures",
-			 "UnixAcceptFail");
 	SET_SOCKSTATDESC(tcp4accept, "TCP/IPv4 connections accepted",
 			 "TCP4Accept");
 	SET_SOCKSTATDESC(tcp6accept, "TCP/IPv6 connections accepted",
 			 "TCP6Accept");
-	SET_SOCKSTATDESC(unixaccept, "Unix domain connections accepted",
-			 "UnixAccept");
 	SET_SOCKSTATDESC(udp4sendfail, "UDP/IPv4 send errors", "UDP4SendErr");
 	SET_SOCKSTATDESC(udp6sendfail, "UDP/IPv6 send errors", "UDP6SendErr");
 	SET_SOCKSTATDESC(tcp4sendfail, "TCP/IPv4 send errors", "TCP4SendErr");
 	SET_SOCKSTATDESC(tcp6sendfail, "TCP/IPv6 send errors", "TCP6SendErr");
-	SET_SOCKSTATDESC(unixsendfail, "Unix domain send errors",
-			 "UnixSendErr");
-	SET_SOCKSTATDESC(fdwatchsendfail, "FDwatch send errors",
-			 "FDwatchSendErr");
 	SET_SOCKSTATDESC(udp4recvfail, "UDP/IPv4 recv errors", "UDP4RecvErr");
 	SET_SOCKSTATDESC(udp6recvfail, "UDP/IPv6 recv errors", "UDP6RecvErr");
 	SET_SOCKSTATDESC(tcp4recvfail, "TCP/IPv4 recv errors", "TCP4RecvErr");
 	SET_SOCKSTATDESC(tcp6recvfail, "TCP/IPv6 recv errors", "TCP6RecvErr");
-	SET_SOCKSTATDESC(unixrecvfail, "Unix domain recv errors",
-			 "UnixRecvErr");
-	SET_SOCKSTATDESC(fdwatchrecvfail, "FDwatch recv errors",
-			 "FDwatchRecvErr");
-	SET_SOCKSTATDESC(rawrecvfail, "Raw recv errors", "RawRecvErr");
 	SET_SOCKSTATDESC(udp4active, "UDP/IPv4 sockets active", "UDP4Active");
 	SET_SOCKSTATDESC(udp6active, "UDP/IPv6 sockets active", "UDP6Active");
 	SET_SOCKSTATDESC(tcp4active, "TCP/IPv4 sockets active", "TCP4Active");
 	SET_SOCKSTATDESC(tcp6active, "TCP/IPv6 sockets active", "TCP6Active");
-	SET_SOCKSTATDESC(unixactive, "Unix domain sockets active",
-			 "UnixActive");
-	SET_SOCKSTATDESC(rawactive, "Raw sockets active", "RawActive");
+	SET_SOCKSTATDESC(tcp4clients, "TCP/IPv4 clients currently connected",
+			 "TCP4Clients");
+	SET_SOCKSTATDESC(tcp6clients, "TCP/IPv6 clients currently connected",
+			 "TCP6Clients");
 	INSIST(i == isc_sockstatscounter_max);
 
 	/* Initialize DNSSEC statistics */
@@ -1304,6 +1272,7 @@ cleanup:
 #define STATS_XML_STATUS  0x00 /* display only common statistics */
 #define STATS_XML_SERVER  0x01
 #define STATS_XML_ZONES	  0x02
+#define STATS_XML_XFRINS  0x04
 #define STATS_XML_NET	  0x08
 #define STATS_XML_MEM	  0x10
 #define STATS_XML_TRAFFIC 0x20
@@ -1486,6 +1455,280 @@ cleanup:
 	isc_log_write(named_g_lctx, NAMED_LOGCATEGORY_GENERAL,
 		      NAMED_LOGMODULE_SERVER, ISC_LOG_ERROR,
 		      "Failed at zone_xmlrender()");
+	return (ISC_R_FAILURE);
+}
+
+static isc_result_t
+xfrin_xmlrender(dns_zone_t *zone, void *arg) {
+	char buf[1024 + 32]; /* sufficiently large for zone name and class */
+	dns_rdataclass_t rdclass;
+	const char *ztype;
+	uint32_t serial;
+	isc_sockaddr_t addr;
+	const isc_sockaddr_t *addrp = NULL;
+	char addr_buf[ISC_SOCKADDR_FORMATSIZE];
+	dns_transport_type_t transport_type;
+	xmlTextWriterPtr writer = arg;
+	dns_zonestat_level_t statlevel;
+	int xmlrc;
+	dns_xfrin_t *xfr = NULL;
+	bool is_firstrefresh, is_running, is_deferred, is_presoa, is_pending;
+	bool needs_refresh;
+	bool is_first_data_received, is_ixfr;
+	unsigned int nmsg = 0;
+	unsigned int nrecs = 0;
+	uint64_t nbytes = 0;
+
+	statlevel = dns_zone_getstatlevel(zone);
+	if (statlevel == dns_zonestat_none) {
+		return (ISC_R_SUCCESS);
+	}
+
+	if (dns_zone_getxfr(zone, &xfr, &is_firstrefresh, &is_running,
+			    &is_deferred, &is_presoa, &is_pending,
+			    &needs_refresh) != ISC_R_SUCCESS)
+	{
+		/*
+		 * Failed to get information about the zone's incoming transfer
+		 * (if any), but we still want to continue generating the
+		 * remaining parts of the output.
+		 */
+		return (ISC_R_SUCCESS);
+	}
+
+	if (!is_running && !is_deferred && !is_presoa && !is_pending &&
+	    !needs_refresh)
+	{
+		if (xfr != NULL) {
+			dns_xfrin_detach(&xfr);
+		}
+		/* No ongoing/queued transfer. */
+		return (ISC_R_SUCCESS);
+	}
+
+	if (is_running && xfr == NULL) {
+		/* The transfer is finished, and it's shutting down. */
+		return (ISC_R_SUCCESS);
+	}
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "xfrin"));
+
+	dns_zone_nameonly(zone, buf, sizeof(buf));
+	TRY0(xmlTextWriterWriteAttribute(writer, ISC_XMLCHAR "name",
+					 ISC_XMLCHAR buf));
+
+	rdclass = dns_zone_getclass(zone);
+	dns_rdataclass_format(rdclass, buf, sizeof(buf));
+	TRY0(xmlTextWriterWriteAttribute(writer, ISC_XMLCHAR "class",
+					 ISC_XMLCHAR buf));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "type"));
+	ztype = user_zonetype(zone);
+	if (ztype != NULL) {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR ztype));
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "serial"));
+	if (dns_zone_getserial(zone, &serial) == ISC_R_SUCCESS) {
+		TRY0(xmlTextWriterWriteFormatString(writer, "%u", serial));
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "remoteserial"));
+	if (is_running) {
+		serial = dns_xfrin_getendserial(xfr);
+		if (serial != 0) {
+			TRY0(xmlTextWriterWriteFormatString(writer, "%u",
+							    serial));
+		} else {
+			TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+		}
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "firstrefresh"));
+	TRY0(xmlTextWriterWriteString(
+		writer, ISC_XMLCHAR(is_firstrefresh ? "Yes" : "No")));
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "state"));
+	if (is_running) {
+		const char *xfr_state = NULL;
+
+		dns_xfrin_getstate(xfr, &xfr_state, &is_first_data_received,
+				   &is_ixfr);
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR xfr_state));
+	} else if (is_deferred) {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "Deferred"));
+	} else if (is_presoa) {
+		TRY0(xmlTextWriterWriteString(writer,
+					      ISC_XMLCHAR "Refresh SOA"));
+	} else if (is_pending) {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "Pending"));
+	} else if (needs_refresh) {
+		TRY0(xmlTextWriterWriteString(writer,
+					      ISC_XMLCHAR "Needs Refresh"));
+	} else {
+		UNREACHABLE();
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "refreshqueued"));
+	TRY0(xmlTextWriterWriteString(
+		writer,
+		ISC_XMLCHAR(is_running && needs_refresh ? "Yes" : "No")));
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "localaddr"));
+	if (is_running) {
+		addrp = dns_xfrin_getsourceaddr(xfr);
+		isc_sockaddr_format(addrp, addr_buf, sizeof(addr_buf));
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR addr_buf));
+	} else if (is_presoa) {
+		addr = dns_zone_getsourceaddr(zone);
+		isc_sockaddr_format(&addr, addr_buf, sizeof(addr_buf));
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR addr_buf));
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "remoteaddr"));
+	if (is_running) {
+		addrp = dns_xfrin_getprimaryaddr(xfr);
+		isc_sockaddr_format(addrp, addr_buf, sizeof(addr_buf));
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR addr_buf));
+	} else if (is_presoa) {
+		addr = dns_zone_getprimaryaddr(zone);
+		isc_sockaddr_format(&addr, addr_buf, sizeof(addr_buf));
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR addr_buf));
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "soatransport"));
+	if (is_running || is_presoa) {
+		if (is_running) {
+			transport_type = dns_xfrin_getsoatransporttype(xfr);
+		} else {
+			transport_type = dns_zone_getrequesttransporttype(zone);
+		}
+		if (transport_type == DNS_TRANSPORT_UDP) {
+			TRY0(xmlTextWriterWriteString(writer,
+						      ISC_XMLCHAR "UDP"));
+		} else if (transport_type == DNS_TRANSPORT_TCP) {
+			TRY0(xmlTextWriterWriteString(writer,
+						      ISC_XMLCHAR "TCP"));
+		} else if (transport_type == DNS_TRANSPORT_TLS) {
+			TRY0(xmlTextWriterWriteString(writer,
+						      ISC_XMLCHAR "TLS"));
+		} else if (transport_type == DNS_TRANSPORT_NONE) {
+			TRY0(xmlTextWriterWriteString(writer,
+						      ISC_XMLCHAR "None"));
+		} else {
+			/* We don't expect any other SOA transport type. */
+			TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+		}
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "transport"));
+	if (is_running) {
+		transport_type = dns_xfrin_gettransporttype(xfr);
+		if (transport_type == DNS_TRANSPORT_TCP) {
+			TRY0(xmlTextWriterWriteString(writer,
+						      ISC_XMLCHAR "TCP"));
+		} else if (transport_type == DNS_TRANSPORT_TLS) {
+			TRY0(xmlTextWriterWriteString(writer,
+						      ISC_XMLCHAR "TLS"));
+		} else {
+			/* We don't expect any other transport type. */
+			TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+		}
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "-"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "tsigkeyname"));
+	if (is_running) {
+		const dns_name_t *tsigkeyname = dns_xfrin_gettsigkeyname(xfr);
+		char tsigkeyname_buf[DNS_NAME_FORMATSIZE];
+
+		if (tsigkeyname != NULL) {
+			dns_name_format(tsigkeyname, tsigkeyname_buf,
+					sizeof(tsigkeyname_buf));
+			TRY0(xmlTextWriterWriteString(
+				writer, ISC_XMLCHAR tsigkeyname_buf));
+		}
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "duration"));
+	if (is_running || is_deferred || is_presoa || is_pending) {
+		isc_time_t start = is_running ? dns_xfrin_getstarttime(xfr)
+					      : dns_zone_getxfrintime(zone);
+		isc_time_t now = isc_time_now();
+		isc_time_t diff;
+		uint32_t sec;
+
+		isc_time_subtract(&now, &start, &diff);
+		sec = isc_time_seconds(&diff);
+		TRY0(xmlTextWriterWriteFormatString(writer, "%" PRIu32, sec));
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR "0"));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	if (is_running) {
+		dns_xfrin_getstats(xfr, &nmsg, &nrecs, &nbytes);
+	}
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "nmsg"));
+	TRY0(xmlTextWriterWriteFormatString(writer, "%u", nmsg));
+	TRY0(xmlTextWriterEndElement(writer));
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "nrecs"));
+	TRY0(xmlTextWriterWriteFormatString(writer, "%u", nrecs));
+	TRY0(xmlTextWriterEndElement(writer));
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "nbytes"));
+	TRY0(xmlTextWriterWriteFormatString(writer, "%" PRIu64, nbytes));
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "ixfr"));
+	if (is_running && is_first_data_received) {
+		TRY0(xmlTextWriterWriteString(
+			writer, ISC_XMLCHAR(is_ixfr ? "Yes" : "No")));
+	} else {
+		TRY0(xmlTextWriterWriteString(writer, ISC_XMLCHAR ""));
+	}
+	TRY0(xmlTextWriterEndElement(writer));
+
+	TRY0(xmlTextWriterEndElement(writer)); /* xfrin */
+
+	if (xfr != NULL) {
+		dns_xfrin_detach(&xfr);
+	}
+
+	return (ISC_R_SUCCESS);
+
+cleanup:
+	if (xfr != NULL) {
+		dns_xfrin_detach(&xfr);
+	}
+
+	isc_log_write(named_g_lctx, NAMED_LOGCATEGORY_GENERAL,
+		      NAMED_LOGMODULE_SERVER, ISC_LOG_ERROR,
+		      "Failed at xfrin_xmlrender()");
+
 	return (ISC_R_FAILURE);
 }
 
@@ -1767,8 +2010,8 @@ generatexml(named_server_t *server, uint32_t flags, int *buflen,
 	 */
 	view = ISC_LIST_HEAD(server->viewlist);
 	TRY0(xmlTextWriterStartElement(writer, ISC_XMLCHAR "views"));
-	while (view != NULL &&
-	       ((flags & (STATS_XML_SERVER | STATS_XML_ZONES)) != 0))
+	while (view != NULL && ((flags & (STATS_XML_SERVER | STATS_XML_ZONES |
+					  STATS_XML_XFRINS)) != 0))
 	{
 		isc_stats_t *istats = NULL;
 		dns_stats_t *dstats = NULL;
@@ -1784,6 +2027,14 @@ generatexml(named_server_t *server, uint32_t flags, int *buflen,
 			CHECK(dns_view_apply(view, true, NULL, zone_xmlrender,
 					     writer));
 			TRY0(xmlTextWriterEndElement(writer)); /* /zones */
+		}
+
+		if ((flags & STATS_XML_XFRINS) != 0) {
+			TRY0(xmlTextWriterStartElement(writer,
+						       ISC_XMLCHAR "xfrins"));
+			CHECK(dns_zt_apply(view->zonetable, true, NULL,
+					   xfrin_xmlrender, writer));
+			TRY0(xmlTextWriterEndElement(writer)); /* /xfrins */
 		}
 
 		if ((flags & STATS_XML_SERVER) == 0) {
@@ -1975,6 +2226,17 @@ render_xml_zones(const isc_httpd_t *httpd, const isc_httpdurl_t *urlinfo,
 }
 
 static isc_result_t
+render_xml_xfrins(const isc_httpd_t *httpd, const isc_httpdurl_t *urlinfo,
+		  void *arg, unsigned int *retcode, const char **retmsg,
+		  const char **mimetype, isc_buffer_t *b,
+		  isc_httpdfree_t **freecb, void **freecb_args) {
+	UNUSED(httpd);
+	UNUSED(urlinfo);
+	return (render_xml(STATS_XML_XFRINS, arg, retcode, retmsg, mimetype, b,
+			   freecb, freecb_args));
+}
+
+static isc_result_t
 render_xml_net(const isc_httpd_t *httpd, const isc_httpdurl_t *urlinfo,
 	       void *arg, unsigned int *retcode, const char **retmsg,
 	       const char **mimetype, isc_buffer_t *b, isc_httpdfree_t **freecb,
@@ -2016,6 +2278,7 @@ render_xml_traffic(const isc_httpd_t *httpd, const isc_httpdurl_t *urlinfo,
 #define STATS_JSON_STATUS  0x00 /* display only common statistics */
 #define STATS_JSON_SERVER  0x01
 #define STATS_JSON_ZONES   0x02
+#define STATS_JSON_XFRINS  0x04
 #define STATS_JSON_NET	   0x08
 #define STATS_JSON_MEM	   0x10
 #define STATS_JSON_TRAFFIC 0x20
@@ -2267,6 +2530,260 @@ cleanup:
 }
 
 static isc_result_t
+xfrin_jsonrender(dns_zone_t *zone, void *arg) {
+	isc_result_t result;
+	char buf[1024 + 32]; /* sufficiently large for zone name and class */
+	char classbuf[64];   /* sufficiently large for class */
+	char *zone_name_only = NULL;
+	char *class_only = NULL;
+	dns_rdataclass_t rdclass;
+	uint32_t serial;
+	json_object *xfrinarray = (json_object *)arg;
+	json_object *xfrinobj = NULL;
+	isc_sockaddr_t addr;
+	const isc_sockaddr_t *addrp = NULL;
+	char addr_buf[ISC_SOCKADDR_FORMATSIZE];
+	dns_transport_type_t transport_type;
+	dns_zonestat_level_t statlevel;
+	dns_xfrin_t *xfr = NULL;
+	bool is_firstrefresh, is_running, is_deferred, is_presoa, is_pending;
+	bool needs_refresh;
+	bool is_first_data_received, is_ixfr;
+	unsigned int nmsg = 0;
+	unsigned int nrecs = 0;
+	uint64_t nbytes = 0;
+
+	statlevel = dns_zone_getstatlevel(zone);
+	if (statlevel == dns_zonestat_none) {
+		return (ISC_R_SUCCESS);
+	}
+
+	dns_zone_nameonly(zone, buf, sizeof(buf));
+	zone_name_only = buf;
+
+	rdclass = dns_zone_getclass(zone);
+	dns_rdataclass_format(rdclass, classbuf, sizeof(classbuf));
+	class_only = classbuf;
+
+	if (dns_zone_getserial(zone, &serial) != ISC_R_SUCCESS) {
+		xfrinobj = addzone(zone_name_only, class_only,
+				   user_zonetype(zone), 0, false);
+	} else {
+		xfrinobj = addzone(zone_name_only, class_only,
+				   user_zonetype(zone), serial, true);
+	}
+
+	if (xfrinobj == NULL) {
+		result = ISC_R_NOMEMORY;
+		goto cleanup;
+	}
+
+	result = dns_zone_getxfr(zone, &xfr, &is_firstrefresh, &is_running,
+				 &is_deferred, &is_presoa, &is_pending,
+				 &needs_refresh);
+	if (result != ISC_R_SUCCESS) {
+		result = ISC_R_SUCCESS;
+		goto cleanup;
+	}
+
+	if (!is_running && !is_deferred && !is_presoa && !is_pending &&
+	    !needs_refresh)
+	{
+		/* No ongoing/queued transfer. */
+		goto cleanup;
+	}
+
+	if (is_running && xfr == NULL) {
+		/* The transfer is finished, and it's shutting down. */
+		goto cleanup;
+	}
+
+	if (is_running) {
+		serial = dns_xfrin_getendserial(xfr);
+		if (serial != 0) {
+			json_object_object_add(xfrinobj, "remoteserial",
+					       json_object_new_int64(serial));
+		}
+	}
+
+	json_object_object_add(
+		xfrinobj, "firstrefresh",
+		json_object_new_string(is_firstrefresh ? "Yes" : "No"));
+
+	if (is_running) {
+		const char *xfr_state = NULL;
+
+		dns_xfrin_getstate(xfr, &xfr_state, &is_first_data_received,
+				   &is_ixfr);
+		json_object_object_add(xfrinobj, "state",
+				       json_object_new_string(xfr_state));
+	} else if (is_deferred) {
+		json_object_object_add(xfrinobj, "state",
+				       json_object_new_string("Deferred"));
+	} else if (is_presoa) {
+		json_object_object_add(xfrinobj, "state",
+				       json_object_new_string("Refresh SOA"));
+	} else if (is_pending) {
+		json_object_object_add(xfrinobj, "state",
+				       json_object_new_string("Pending"));
+	} else if (needs_refresh) {
+		json_object_object_add(xfrinobj, "state",
+				       json_object_new_string("Needs Refresh"));
+	} else {
+		UNREACHABLE();
+	}
+
+	json_object_object_add(
+		xfrinobj, "refreshqueued",
+		json_object_new_string(is_running && needs_refresh ? "Yes"
+								   : "No"));
+
+	if (is_running) {
+		addrp = dns_xfrin_getsourceaddr(xfr);
+		isc_sockaddr_format(addrp, addr_buf, sizeof(addr_buf));
+		json_object_object_add(xfrinobj, "localaddr",
+				       json_object_new_string(addr_buf));
+	} else if (is_presoa) {
+		addr = dns_zone_getsourceaddr(zone);
+		isc_sockaddr_format(&addr, addr_buf, sizeof(addr_buf));
+		json_object_object_add(xfrinobj, "localaddr",
+				       json_object_new_string(addr_buf));
+	} else {
+		json_object_object_add(xfrinobj, "localaddr",
+				       json_object_new_string("-"));
+	}
+
+	if (is_running) {
+		addrp = dns_xfrin_getprimaryaddr(xfr);
+		isc_sockaddr_format(addrp, addr_buf, sizeof(addr_buf));
+		json_object_object_add(xfrinobj, "remoteaddr",
+				       json_object_new_string(addr_buf));
+	} else if (is_presoa) {
+		addr = dns_zone_getprimaryaddr(zone);
+		isc_sockaddr_format(&addr, addr_buf, sizeof(addr_buf));
+		json_object_object_add(xfrinobj, "remoteaddr",
+				       json_object_new_string(addr_buf));
+	} else {
+		json_object_object_add(xfrinobj, "remoteaddr",
+				       json_object_new_string("-"));
+	}
+
+	if (is_running || is_presoa) {
+		if (is_running) {
+			transport_type = dns_xfrin_getsoatransporttype(xfr);
+		} else {
+			transport_type = dns_zone_getrequesttransporttype(zone);
+		}
+
+		if (transport_type == DNS_TRANSPORT_UDP) {
+			json_object_object_add(xfrinobj, "soatransport",
+					       json_object_new_string("UDP"));
+		} else if (transport_type == DNS_TRANSPORT_TCP) {
+			json_object_object_add(xfrinobj, "soatransport",
+					       json_object_new_string("TCP"));
+		} else if (transport_type == DNS_TRANSPORT_TLS) {
+			json_object_object_add(xfrinobj, "soatransport",
+					       json_object_new_string("TLS"));
+		} else if (transport_type == DNS_TRANSPORT_NONE) {
+			json_object_object_add(xfrinobj, "soatransport",
+					       json_object_new_string("None"));
+		} else {
+			/* We don't expect any other SOA transport type. */
+			json_object_object_add(xfrinobj, "soatransport",
+					       json_object_new_string("-"));
+		}
+	} else {
+		json_object_object_add(xfrinobj, "soatransport",
+				       json_object_new_string("-"));
+	}
+
+	if (is_running) {
+		transport_type = dns_xfrin_gettransporttype(xfr);
+		if (transport_type == DNS_TRANSPORT_TCP) {
+			json_object_object_add(xfrinobj, "transport",
+					       json_object_new_string("TCP"));
+		} else if (transport_type == DNS_TRANSPORT_TLS) {
+			json_object_object_add(xfrinobj, "transport",
+					       json_object_new_string("TLS"));
+		} else {
+			/* We don't expect any other transport type. */
+			json_object_object_add(xfrinobj, "transport",
+					       json_object_new_string("-"));
+		}
+	} else {
+		json_object_object_add(xfrinobj, "transport",
+				       json_object_new_string("-"));
+	}
+
+	if (is_running) {
+		const dns_name_t *tsigkeyname = dns_xfrin_gettsigkeyname(xfr);
+		char tsigkeyname_buf[DNS_NAME_FORMATSIZE];
+
+		if (tsigkeyname != NULL) {
+			dns_name_format(tsigkeyname, tsigkeyname_buf,
+					sizeof(tsigkeyname_buf));
+			json_object_object_add(
+				xfrinobj, "tsigkeyname",
+				json_object_new_string(tsigkeyname_buf));
+		} else {
+			json_object_object_add(xfrinobj, "tsigkeyname", NULL);
+		}
+	} else {
+		json_object_object_add(xfrinobj, "tsigkeyname", NULL);
+	}
+
+	if (is_running || is_deferred || is_presoa || is_pending) {
+		isc_time_t start = is_running ? dns_xfrin_getstarttime(xfr)
+					      : dns_zone_getxfrintime(zone);
+		isc_time_t now = isc_time_now();
+		isc_time_t diff;
+		uint32_t sec;
+
+		isc_time_subtract(&now, &start, &diff);
+		sec = isc_time_seconds(&diff);
+		json_object_object_add(xfrinobj, "duration",
+				       json_object_new_int64((int64_t)sec));
+	} else {
+		json_object_object_add(xfrinobj, "duration",
+				       json_object_new_int64(0));
+	}
+
+	if (is_running) {
+		dns_xfrin_getstats(xfr, &nmsg, &nrecs, &nbytes);
+	}
+	json_object_object_add(xfrinobj, "nmsg",
+			       json_object_new_int64((int64_t)nmsg));
+	json_object_object_add(xfrinobj, "nrecs",
+			       json_object_new_int64((int64_t)nrecs));
+	json_object_object_add(
+		xfrinobj, "nbytes",
+		json_object_new_int64(nbytes > INT64_MAX ? INT64_MAX
+							 : (int64_t)nbytes));
+
+	if (is_running && is_first_data_received) {
+		json_object_object_add(
+			xfrinobj, "ixfr",
+			json_object_new_string(is_ixfr ? "Yes" : "No"));
+	} else {
+		json_object_object_add(xfrinobj, "ixfr",
+				       json_object_new_string(""));
+	}
+
+	json_object_array_add(xfrinarray, xfrinobj);
+	xfrinobj = NULL;
+	result = ISC_R_SUCCESS;
+
+cleanup:
+	if (xfr != NULL) {
+		dns_xfrin_detach(&xfr);
+	}
+	if (xfrinobj != NULL) {
+		json_object_put(xfrinobj);
+	}
+	return (result);
+}
+
+static isc_result_t
 generatejson(named_server_t *server, size_t *msglen, const char **msg,
 	     json_object **rootp, uint32_t flags) {
 	dns_view_t *view;
@@ -2484,7 +3001,9 @@ generatejson(named_server_t *server, size_t *msglen, const char **msg,
 #endif /* ifdef HAVE_DNSTAP */
 	}
 
-	if ((flags & (STATS_JSON_ZONES | STATS_JSON_SERVER)) != 0) {
+	if ((flags &
+	     (STATS_JSON_SERVER | STATS_JSON_ZONES | STATS_JSON_XFRINS)) != 0)
+	{
 		viewlist = json_object_new_object();
 		CHECKMEM(viewlist);
 
@@ -2492,7 +3011,7 @@ generatejson(named_server_t *server, size_t *msglen, const char **msg,
 
 		view = ISC_LIST_HEAD(server->viewlist);
 		while (view != NULL) {
-			json_object *za, *v = json_object_new_object();
+			json_object *za, *xa, *v = json_object_new_object();
 			dns_adb_t *adb = NULL;
 
 			CHECKMEM(v);
@@ -2510,6 +3029,20 @@ generatejson(named_server_t *server, size_t *msglen, const char **msg,
 				json_object_object_add(v, "zones", za);
 			} else {
 				json_object_put(za);
+			}
+
+			xa = json_object_new_array();
+			CHECKMEM(xa);
+
+			if ((flags & STATS_JSON_XFRINS) != 0) {
+				CHECK(dns_zt_apply(view->zonetable, true, NULL,
+						   xfrin_jsonrender, xa));
+			}
+
+			if (json_object_array_length(xa) != 0) {
+				json_object_object_add(v, "xfrins", xa);
+			} else {
+				json_object_put(xa);
 			}
 
 			if ((flags & STATS_JSON_SERVER) != 0) {
@@ -2896,6 +3429,17 @@ render_json_zones(const isc_httpd_t *httpd, const isc_httpdurl_t *urlinfo,
 }
 
 static isc_result_t
+render_json_xfrins(const isc_httpd_t *httpd, const isc_httpdurl_t *urlinfo,
+		   void *arg, unsigned int *retcode, const char **retmsg,
+		   const char **mimetype, isc_buffer_t *b,
+		   isc_httpdfree_t **freecb, void **freecb_args) {
+	UNUSED(httpd);
+	UNUSED(urlinfo);
+	return (render_json(STATS_JSON_XFRINS, arg, retcode, retmsg, mimetype,
+			    b, freecb, freecb_args));
+}
+
+static isc_result_t
 render_json_mem(const isc_httpd_t *httpd, const isc_httpdurl_t *urlinfo,
 		void *arg, unsigned int *retcode, const char **retmsg,
 		const char **mimetype, isc_buffer_t *b,
@@ -3101,6 +3645,9 @@ add_listener(named_server_t *server, named_statschannel_t **listenerp,
 			    "/xml/v" STATS_XML_VERSION_MAJOR "/zones", false,
 			    render_xml_zones, server);
 	isc_httpdmgr_addurl(listener->httpdmgr,
+			    "/xml/v" STATS_XML_VERSION_MAJOR "/xfrins", false,
+			    render_xml_xfrins, server);
+	isc_httpdmgr_addurl(listener->httpdmgr,
 			    "/xml/v" STATS_XML_VERSION_MAJOR "/net", false,
 			    render_xml_net, server);
 	isc_httpdmgr_addurl(listener->httpdmgr,
@@ -3125,6 +3672,9 @@ add_listener(named_server_t *server, named_statschannel_t **listenerp,
 	isc_httpdmgr_addurl(listener->httpdmgr,
 			    "/json/v" STATS_JSON_VERSION_MAJOR "/zones", false,
 			    render_json_zones, server);
+	isc_httpdmgr_addurl(listener->httpdmgr,
+			    "/json/v" STATS_JSON_VERSION_MAJOR "/xfrins", false,
+			    render_json_xfrins, server);
 	isc_httpdmgr_addurl(listener->httpdmgr,
 			    "/json/v" STATS_JSON_VERSION_MAJOR "/net", false,
 			    render_json_net, server);

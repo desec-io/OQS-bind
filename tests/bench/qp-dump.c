@@ -57,8 +57,7 @@ smallname_offsets(void *pval, uint32_t ival) {
 }
 
 static void
-smallname_from_name(/* isc_mem_t *mctx, */ const dns_name_t *name, void **valp,
-		    uint32_t *ctxp) {
+smallname_from_name(const dns_name_t *name, void **valp, uint32_t *ctxp) {
 	size_t size = sizeof(isc_refcount_t) + name->length + name->labels;
 	*valp = isc_mem_get(mctx, size);
 	*ctxp = name->labels << 8 | name->length;
@@ -68,7 +67,7 @@ smallname_from_name(/* isc_mem_t *mctx, */ const dns_name_t *name, void **valp,
 }
 
 static void
-smallname_free(/* isc_mem_t *mctx, */ void *pval, uint32_t ival) {
+smallname_free(void *pval, uint32_t ival) {
 	size_t size = sizeof(isc_refcount_t);
 	size += smallname_length(pval, ival) + smallname_labels(pval, ival);
 	isc_mem_put(mctx, pval, size);
@@ -153,7 +152,7 @@ main(int argc, char *argv[]) {
 			continue;
 		default:
 			usage();
-			exit(1);
+			exit(EXIT_FAILURE);
 			continue;
 		}
 	}
@@ -163,7 +162,7 @@ main(int argc, char *argv[]) {
 	if (argc != 1) {
 		/* must exit 0 to appease test runner */
 		usage();
-		exit(0);
+		exit(EXIT_SUCCESS);
 	}
 
 	isc_mem_create(&mctx);
@@ -173,7 +172,7 @@ main(int argc, char *argv[]) {
 	if (result != ISC_R_SUCCESS) {
 		fprintf(stderr, "stat(%s): %s\n", filename,
 			isc_result_totext(result));
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 
 	filesize = (size_t)fileoff;
@@ -181,7 +180,7 @@ main(int argc, char *argv[]) {
 	fp = fopen(filename, "r");
 	if (fp == NULL || fread(filetext, 1, filesize, fp) < filesize) {
 		fprintf(stderr, "read(%s): %s\n", filename, strerror(errno));
-		exit(1);
+		exit(EXIT_FAILURE);
 	}
 	fclose(fp);
 	filetext[filesize] = '\0';
@@ -221,7 +220,7 @@ main(int argc, char *argv[]) {
 		if (result != ISC_R_SUCCESS) {
 			fprintf(stderr, "%s:%zu: %s %s\n", filename, names,
 				domain, isc_result_totext(result));
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 
 		wirebytes += name->length;

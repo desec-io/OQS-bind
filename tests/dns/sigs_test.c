@@ -59,10 +59,7 @@ typedef struct {
 	const char *type;
 } zonediff_t;
 
-#define ZONEDIFF_SENTINEL        \
-	{                        \
-		0, NULL, 0, NULL \
-	}
+#define ZONEDIFF_SENTINEL { 0, NULL, 0, NULL }
 
 /*%
  * Structure defining a dns__zone_updatesigs() test.
@@ -315,8 +312,8 @@ ISC_RUN_TEST_IMPL(updatesigs_next) {
 	result = dns_zone_setkeydirectory(zone, TESTS_DIR "/testkeys");
 	assert_int_equal(result, ISC_R_SUCCESS);
 
-	result = dns__zone_findkeys(zone, db, NULL, now, mctx, DNS_MAXZONEKEYS,
-				    zone_keys, &nkeys);
+	result = dns_zone_findkeys(zone, db, NULL, now, mctx, DNS_MAXZONEKEYS,
+				   zone_keys, &nkeys);
 	assert_int_equal(result, ISC_R_SUCCESS);
 	assert_int_equal(nkeys, 2);
 

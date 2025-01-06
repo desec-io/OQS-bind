@@ -30,6 +30,8 @@
 #include <isc/mutex.h>
 #include <isc/refcount.h>
 
+#include <dns/dnssec.h>
+#include <dns/keystore.h>
 #include <dns/types.h>
 
 ISC_LANG_BEGINDECLS
@@ -51,6 +53,7 @@ struct dns_kasp_key {
 	ISC_LINK(struct dns_kasp_key) link;
 
 	/* Configuration */
+	dns_keystore_t *keystore;
 	uint32_t lifetime;
 	uint8_t	 algorithm;
 	int	 param;
@@ -81,6 +84,7 @@ struct dns_kasp {
 	ISC_LINK(struct dns_kasp) link;
 
 	/* Configuration: signatures */
+	uint32_t signatures_jitter;
 	uint32_t signatures_refresh;
 	uint32_t signatures_validity;
 	uint32_t signatures_validity_dnskey;
@@ -114,6 +118,8 @@ struct dns_kasp {
 #define DNS_KASP_VALID(kasp) ISC_MAGIC_VALID(kasp, DNS_KASP_MAGIC)
 
 /* Defaults */
+#define DEFAULT_JITTER		     (12 * 3600)
+#define DNS_KASP_SIG_JITTER	     "PT12H"
 #define DNS_KASP_SIG_REFRESH	     "P5D"
 #define DNS_KASP_SIG_VALIDITY	     "P14D"
 #define DNS_KASP_SIG_VALIDITY_DNSKEY "P14D"
@@ -240,6 +246,30 @@ dns_kasp_signdelay(dns_kasp_t *kasp);
  * Returns:
  *
  *\li   signature refresh interval.
+ */
+
+uint32_t
+dns_kasp_sigjitter(dns_kasp_t *kasp);
+/*%<
+ * Get signature jitter value.
+ *
+ * Requires:
+ *
+ *\li   'kasp' is a valid, frozen kasp.
+ *
+ * Returns:
+ *
+ *\li   signature jitter value.
+ */
+
+void
+dns_kasp_setsigjitter(dns_kasp_t *kasp, uint32_t value);
+/*%<
+ * Set signature jitter value.
+ *
+ * Requires:
+ *
+ *\li   'kasp' is a valid, thawed kasp.
  */
 
 uint32_t
@@ -643,6 +673,21 @@ dns_kasp_key_lifetime(dns_kasp_key_t *key);
  *
  */
 
+dns_keystore_t *
+dns_kasp_key_keystore(dns_kasp_key_t *key);
+/*%<
+ * The keystore reference of this key.
+ *
+ * Requires:
+ *
+ *\li  key != NULL
+ *
+ * Returns:
+ *
+ *\li  Keystore of key, or NULL if zone's key-directory is used.
+ *
+ */
+
 bool
 dns_kasp_key_ksk(dns_kasp_key_t *key);
 /*%<
@@ -673,6 +718,24 @@ dns_kasp_key_zsk(dns_kasp_key_t *key);
  *\li  True, if the key role has DNS_KASP_KEY_ROLE_ZSK set.
  *\li  False, otherwise.
  *
+ */
+
+bool
+dns_kasp_key_match(dns_kasp_key_t *key, dns_dnsseckey_t *dkey);
+/*%<
+ * Does the DNSSEC key 'dkey' match the policy parameters from the kasp key
+ * 'key'? A DNSSEC key matches if it has the same algorithm and size, and if
+ * it has the same role as the kasp key configuration.
+ *
+ * Requires:
+ *
+ *\li  key != NULL
+ *\li  dkey != NULL
+ *
+ * Returns:
+ *
+ *\li  True, if the DNSSEC key matches.
+ *\li  False, otherwise.
  */
 
 bool

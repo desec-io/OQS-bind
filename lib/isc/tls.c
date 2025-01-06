@@ -77,13 +77,7 @@ isc__tls_set_thread_id(CRYPTO_THREADID *id) {
 }
 #endif
 
-#ifdef ISC_TEST_OPENSSL_MEMORY_LEAKS
-static atomic_bool handle_fatal = false;
-#else
-static atomic_bool handle_fatal = true;
-#endif
-
-#if !defined(LIBRESSL_VERSION_NUMBER)
+#if !defined(LIBRESSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x30000000L
 /*
  * This was crippled with LibreSSL, so just skip it:
  * https://cvsweb.openbsd.org/src/lib/libcrypto/Attic/mem.c
@@ -115,7 +109,7 @@ isc__tls_free_ex(void *ptr, const char *file, int line) {
 	if (ptr == NULL) {
 		return;
 	}
-	if (!atomic_load(&handle_fatal) || isc__tls_mctx != NULL) {
+	if (isc__tls_mctx != NULL) {
 		isc__mem_free(isc__tls_mctx, ptr, 0, file, (unsigned int)line);
 	}
 }
@@ -143,20 +137,12 @@ isc__tls_free_ex(void *ptr, const char *file, int line) {
 	if (ptr == NULL) {
 		return;
 	}
-	if (!atomic_load(&handle_fatal) || isc__tls_mctx != NULL) {
+	if (isc__tls_mctx != NULL) {
 		isc__mem_free(isc__tls_mctx, ptr, 0);
 	}
 }
 
 #endif /* ISC_MEM_TRACKLINES */
-
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-static void
-isc__tls_free(void *ptr) {
-	isc__tls_free_ex(ptr, __FILE__, __LINE__);
-}
-
-#endif
 
 #endif /* !defined(LIBRESSL_VERSION_NUMBER) */
 
@@ -166,20 +152,16 @@ isc__tls_initialize(void) {
 	isc_mem_setname(isc__tls_mctx, "OpenSSL");
 	isc_mem_setdestroycheck(isc__tls_mctx, false);
 
-#if !defined(LIBRESSL_VERSION_NUMBER)
+#if !defined(LIBRESSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x30000000L
 	/*
 	 * CRYPTO_set_mem_(_ex)_functions() returns 1 on success or 0 on
 	 * failure, which means OpenSSL already allocated some memory.  There's
 	 * nothing we can do about it.
 	 */
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	(void)CRYPTO_set_mem_functions(isc__tls_malloc_ex, isc__tls_realloc_ex,
 				       isc__tls_free_ex);
-#else
-	(void)CRYPTO_set_mem_ex_functions(isc__tls_malloc_ex,
-					  isc__tls_realloc_ex, isc__tls_free);
-#endif
-#endif /* !defined(LIBRESSL_VERSION_NUMBER) */
+#endif /* !defined(LIBRESSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= \
+	  0x30000000L  */
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
 	uint64_t opts = OPENSSL_INIT_ENGINE_ALL_BUILTIN |
@@ -798,6 +780,55 @@ isc_tlsctx_set_cipherlist(isc_tlsctx_t *ctx, const char *cipherlist) {
 	REQUIRE(*cipherlist != '\0');
 
 	RUNTIME_CHECK(SSL_CTX_set_cipher_list(ctx, cipherlist) == 1);
+}
+
+bool
+isc_tls_cipher_suites_valid(const char *cipher_suites) {
+#ifdef HAVE_SSL_CTX_SET_CIPHERSUITES
+	isc_tlsctx_t *tmp_ctx = NULL;
+	const SSL_METHOD *method = NULL;
+	bool result;
+	REQUIRE(cipher_suites != NULL);
+
+	if (*cipher_suites == '\0') {
+		return (false);
+	}
+
+	method = TLS_server_method();
+	if (method == NULL) {
+		return (false);
+	}
+	tmp_ctx = SSL_CTX_new(method);
+	if (tmp_ctx == NULL) {
+		return (false);
+	}
+
+	result = SSL_CTX_set_ciphersuites(tmp_ctx, cipher_suites) == 1;
+
+	isc_tlsctx_free(&tmp_ctx);
+
+	return (result);
+#else
+	UNUSED(cipher_suites);
+
+	UNREACHABLE();
+#endif
+}
+
+void
+isc_tlsctx_set_cipher_suites(isc_tlsctx_t *ctx, const char *cipher_suites) {
+#ifdef HAVE_SSL_CTX_SET_CIPHERSUITES
+	REQUIRE(ctx != NULL);
+	REQUIRE(cipher_suites != NULL);
+	REQUIRE(*cipher_suites != '\0');
+
+	RUNTIME_CHECK(SSL_CTX_set_ciphersuites(ctx, cipher_suites) == 1);
+#else
+	UNUSED(ctx);
+	UNUSED(cipher_suites);
+
+	UNREACHABLE();
+#endif
 }
 
 void
@@ -1758,9 +1789,4 @@ isc_tlsctx_set_random_session_id_context(isc_tlsctx_t *ctx) {
 
 	RUNTIME_CHECK(
 		SSL_CTX_set_session_id_context(ctx, session_id_ctx, len) == 1);
-}
-
-void
-isc__tls_setfatalmode(void) {
-	atomic_store(&handle_fatal, true);
 }

@@ -85,7 +85,7 @@ setup_server(void **state) {
 
 	ns_server_create(mctx, matchview, &sctx);
 
-	result = dns_dispatchmgr_create(mctx, netmgr, &dispatchmgr);
+	result = dns_dispatchmgr_create(mctx, loopmgr, netmgr, &dispatchmgr);
 	if (result != ISC_R_SUCCESS) {
 		goto cleanup;
 	}
@@ -250,7 +250,7 @@ attach_query_msg_to_client(ns_client_t *client, const char *qnamestr,
 			   dns_rdatatype_t qtype, unsigned int qflags) {
 	dns_rdataset_t *qrdataset = NULL;
 	dns_message_t *message = NULL;
-	unsigned char query[65536];
+	unsigned char query[65535];
 	dns_name_t *qname = NULL;
 	isc_buffer_t querybuf;
 	dns_compress_t cctx;
@@ -262,7 +262,8 @@ attach_query_msg_to_client(ns_client_t *client, const char *qnamestr,
 	/*
 	 * Create a new DNS message holding a query.
 	 */
-	dns_message_create(mctx, DNS_MESSAGE_INTENTRENDER, &message);
+	dns_message_create(mctx, NULL, NULL, DNS_MESSAGE_INTENTRENDER,
+			   &message);
 
 	/*
 	 * Set query ID to a random value.
@@ -529,7 +530,9 @@ ns_test_loaddb(dns_db_t **db, dns_dbtype_t dbtype, const char *origin,
 	       const char *testfile) {
 	isc_result_t result;
 	dns_fixedname_t fixed;
-	dns_name_t *name;
+	dns_name_t *name = NULL;
+	const char *dbimp = (dbtype == dns_dbtype_zone) ? ZONEDB_DEFAULT
+							: CACHEDB_DEFAULT;
 
 	name = dns_fixedname_initname(&fixed);
 
@@ -538,7 +541,7 @@ ns_test_loaddb(dns_db_t **db, dns_dbtype_t dbtype, const char *origin,
 		return (result);
 	}
 
-	result = dns_db_create(mctx, "rbt", name, dbtype, dns_rdataclass_in, 0,
+	result = dns_db_create(mctx, dbimp, name, dbtype, dns_rdataclass_in, 0,
 			       NULL, db);
 	if (result != ISC_R_SUCCESS) {
 		return (result);

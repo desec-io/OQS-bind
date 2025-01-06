@@ -116,6 +116,7 @@
 		{ DNS_KEYALG_SPHINCSSHA256128S, "SPHINCS+-SHA256-128S", 0 }, \
 		{ DNS_KEYALG_XMSS, "XMSS", 0 },                              \
 		{ DNS_KEYALG_XMSSMT, "XMSSMT", 0 },                          \
+		{ DNS_KEYALG_MERKLE_TREE, "MERKLE_TREE", 0 },                \
 		{ DNS_KEYALG_INDIRECT, "INDIRECT", 0 },                      \
 		{ DNS_KEYALG_PRIVATEDNS, "PRIVATEDNS", 0 },                  \
 		{ DNS_KEYALG_PRIVATEOID, "PRIVATEOID", 0 }, {                \

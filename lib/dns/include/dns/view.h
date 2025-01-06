@@ -139,6 +139,8 @@ struct dns_view {
 	dns_acl_t	     *upfwdacl;
 	dns_acl_t	     *denyansweracl;
 	dns_acl_t	     *nocasecompress;
+	dns_acl_t	     *proxyacl;
+	dns_acl_t	     *proxyonacl;
 	bool		      msgcompression;
 	dns_nametree_t	     *answeracl_exclude;
 	dns_nametree_t	     *denyanswernames;
@@ -165,22 +167,22 @@ struct dns_view {
 	uint16_t	      maxudp;
 	dns_ttl_t	      staleanswerttl;
 	dns_stale_answer_t    staleanswersok;	  /* rndc setting */
-	bool		      staleanswersenable; /* named.conf setting
-						   * */
-	uint32_t	  staleanswerclienttimeout;
-	uint16_t	  nocookieudp;
-	uint16_t	  padding;
-	dns_acl_t	 *pad_acl;
-	unsigned int	  maxbits;
-	dns_dns64list_t	  dns64;
-	unsigned int	  dns64cnt;
-	dns_rpz_zones_t	 *rpzs;
-	dns_catz_zones_t *catzs;
-	dns_dlzdblist_t	  dlz_searched;
-	dns_dlzdblist_t	  dlz_unsearched;
-	uint32_t	  fail_ttl;
-	dns_badcache_t	 *failcache;
-	unsigned int	  udpsize;
+	bool		      staleanswersenable; /* named.conf setting */
+	uint32_t	      staleanswerclienttimeout;
+	uint16_t	      nocookieudp;
+	uint16_t	      padding;
+	dns_acl_t	     *pad_acl;
+	unsigned int	      maxbits;
+	dns_dns64list_t	      dns64;
+	unsigned int	      dns64cnt;
+	bool		      usedns64;
+	dns_rpz_zones_t	     *rpzs;
+	dns_catz_zones_t     *catzs;
+	dns_dlzdblist_t	      dlz_searched;
+	dns_dlzdblist_t	      dlz_unsearched;
+	uint32_t	      fail_ttl;
+	dns_badcache_t	     *failcache;
+	unsigned int	      udpsize;
 
 	/*
 	 * Configurable data for server use only,
@@ -364,8 +366,7 @@ dns_view_weakdetach(dns_view_t **targetp);
  */
 
 isc_result_t
-dns_view_createresolver(dns_view_t *view, isc_loopmgr_t *loopmgr,
-			unsigned int ndisp, isc_nm_t *netmgr,
+dns_view_createresolver(dns_view_t *view, isc_nm_t *netmgr,
 			unsigned int options, isc_tlsctx_cache_t *tlsctx_cache,
 			dns_dispatch_t *dispatchv4, dns_dispatch_t *dispatchv6);
 /*%<
@@ -548,8 +549,11 @@ dns_view_find(dns_view_t *view, const dns_name_t *name, dns_rdatatype_t type,
  * Notes:
  *
  *\li	See the description of dns_db_find() for information about 'options'.
- *	If the caller sets #DNS_DBFIND_GLUEOK, it must ensure that 'name'
- *	and 'type' are appropriate for glue retrieval.
+
+ *\li	If the caller sets #DNS_DBFIND_GLUEOK, it must ensure that 'name'
+ *	and 'type' are appropriate for glue retrieval. Glue found in a
+ *	zone database will be returned without checking the cache for a
+ *	better answer.
  *
  *\li	If 'now' is zero, then the current time will be used.
  *

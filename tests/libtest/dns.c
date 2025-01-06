@@ -24,9 +24,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define UNIT_TESTING
-#include <cmocka.h>
-
 #include <isc/buffer.h>
 #include <isc/file.h>
 #include <isc/hash.h>
@@ -68,7 +65,8 @@ dns_test_makeview(const char *name, bool with_dispatchmgr, bool with_cache,
 	dns_dispatchmgr_t *dispatchmgr = NULL;
 
 	if (with_dispatchmgr) {
-		result = dns_dispatchmgr_create(mctx, netmgr, &dispatchmgr);
+		result = dns_dispatchmgr_create(mctx, loopmgr, netmgr,
+						&dispatchmgr);
 		if (result != ISC_R_SUCCESS) {
 			return (result);
 		}
@@ -86,7 +84,7 @@ dns_test_makeview(const char *name, bool with_dispatchmgr, bool with_cache,
 	}
 
 	if (with_cache) {
-		result = dns_cache_create(loopmgr, dns_rdataclass_in, "",
+		result = dns_cache_create(loopmgr, dns_rdataclass_in, "", mctx,
 					  &cache);
 		if (result != ISC_R_SUCCESS) {
 			dns_view_detach(&view);
@@ -172,7 +170,7 @@ void
 dns_test_setupzonemgr(void) {
 	REQUIRE(zonemgr == NULL);
 
-	dns_zonemgr_create(mctx, loopmgr, netmgr, &zonemgr);
+	dns_zonemgr_create(mctx, netmgr, &zonemgr);
 }
 
 isc_result_t
@@ -215,7 +213,9 @@ dns_test_loaddb(dns_db_t **db, dns_dbtype_t dbtype, const char *origin,
 		const char *testfile) {
 	isc_result_t result;
 	dns_fixedname_t fixed;
-	dns_name_t *name;
+	dns_name_t *name = NULL;
+	const char *dbimp = (dbtype == dns_dbtype_zone) ? ZONEDB_DEFAULT
+							: CACHEDB_DEFAULT;
 
 	name = dns_fixedname_initname(&fixed);
 
@@ -224,7 +224,7 @@ dns_test_loaddb(dns_db_t **db, dns_dbtype_t dbtype, const char *origin,
 		return (result);
 	}
 
-	result = dns_db_create(mctx, "rbt", name, dbtype, dns_rdataclass_in, 0,
+	result = dns_db_create(mctx, dbimp, name, dbtype, dns_rdataclass_in, 0,
 			       NULL, db);
 	if (result != ISC_R_SUCCESS) {
 		return (result);
@@ -263,7 +263,7 @@ dns_test_tohex(const unsigned char *data, size_t len, char *buf,
 	memset(buf, 0, buflen);
 	isc_buffer_init(&target, buf, buflen);
 	result = isc_hex_totext((isc_region_t *)&source, 1, " ", &target);
-	assert_int_equal(result, ISC_R_SUCCESS);
+	INSIST(result == ISC_R_SUCCESS);
 
 	return (buf);
 }
@@ -427,7 +427,7 @@ dns_test_namefromstring(const char *namestr, dns_fixedname_t *fname) {
 
 	isc_buffer_putmem(b, (const unsigned char *)namestr, length);
 	result = dns_name_fromtext(name, b, NULL, 0, NULL);
-	assert_int_equal(result, ISC_R_SUCCESS);
+	INSIST(result == ISC_R_SUCCESS);
 
 	isc_buffer_free(&b);
 }

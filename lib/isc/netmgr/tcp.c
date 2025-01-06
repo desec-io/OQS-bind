@@ -223,12 +223,14 @@ isc_nm_tcpconnect(isc_nm_t *mgr, isc_sockaddr_t *local, isc_sockaddr_t *peer,
 	isc_nmsocket_t *sock = NULL;
 	isc__nm_uvreq_t *req = NULL;
 	sa_family_t sa_family;
-	isc__networker_t *worker = &mgr->workers[isc_tid()];
+	isc__networker_t *worker = NULL;
 	uv_os_sock_t fd = -1;
 
 	REQUIRE(VALID_NM(mgr));
 	REQUIRE(local != NULL);
 	REQUIRE(peer != NULL);
+
+	worker = &mgr->workers[isc_tid()];
 
 	if (isc__nm_closing(worker)) {
 		connect_cb(NULL, ISC_R_SHUTTINGDOWN, connect_cbarg);
@@ -243,7 +245,7 @@ isc_nm_tcpconnect(isc_nm_t *mgr, isc_sockaddr_t *local, isc_sockaddr_t *peer,
 		return;
 	}
 
-	sock = isc_mem_get(worker->mctx, sizeof(*sock));
+	sock = isc_mempool_get(worker->nmsocket_pool);
 	isc__nmsocket_init(sock, worker, isc_nm_tcpsocket, local, NULL);
 
 	sock->connect_timeout = timeout;
@@ -446,7 +448,7 @@ isc_nm_listentcp(isc_nm_t *mgr, uint32_t workers, isc_sockaddr_t *iface,
 	isc_nmsocket_t *sock = NULL;
 	uv_os_sock_t fd = -1;
 	isc_result_t result = ISC_R_UNSET;
-	isc__networker_t *worker = &mgr->workers[0];
+	isc__networker_t *worker = NULL;
 
 	REQUIRE(VALID_NM(mgr));
 	REQUIRE(isc_tid() == 0);
@@ -456,7 +458,8 @@ isc_nm_listentcp(isc_nm_t *mgr, uint32_t workers, isc_sockaddr_t *iface,
 	}
 	REQUIRE(workers <= mgr->nloops);
 
-	sock = isc_mem_get(worker->mctx, sizeof(*sock));
+	worker = &mgr->workers[0];
+	sock = isc_mempool_get(worker->nmsocket_pool);
 	isc__nmsocket_init(sock, worker, isc_nm_tcplistener, iface, NULL);
 
 	sock->nchildren = (workers == ISC_NM_LISTEN_ALL) ? (uint32_t)mgr->nloops
@@ -536,8 +539,7 @@ tcp_connection_cb(uv_stream_t *server, int status) {
 	}
 
 	/* Prepare the child socket */
-	isc_nmsocket_t *csock = isc_mem_get(ssock->worker->mctx,
-					    sizeof(isc_nmsocket_t));
+	isc_nmsocket_t *csock = isc_mempool_get(ssock->worker->nmsocket_pool);
 	isc__nmsocket_init(csock, ssock->worker, isc_nm_tcpsocket,
 			   &ssock->iface, NULL);
 	isc__nmsocket_attach(ssock, &csock->server);
@@ -852,6 +854,10 @@ accept_connection(isc_nmsocket_t *csock) {
 	UV_RUNTIME_CHECK(uv_timer_init, r);
 	uv_handle_set_data((uv_handle_t *)&csock->read_timer, csock);
 
+	if (csock->server->pquota != NULL) {
+		isc__nm_incstats(csock, STATID_CLIENTS);
+	}
+
 	/*
 	 * We need to initialize the tcp and timer before failing because
 	 * isc__nm_tcp_close() can't handle uninitalized TCP nmsocket.
@@ -910,10 +916,6 @@ accept_connection(isc_nmsocket_t *csock) {
 	 * connection alive
 	 */
 	isc_nmhandle_detach(&handle);
-
-	if (csock->statichandle != NULL) {
-		INSIST(csock->recv_cb != NULL);
-	}
 
 	/*
 	 * sock is now attached to the handle.
@@ -1106,6 +1108,7 @@ tcp_close_sock(isc_nmsocket_t *sock) {
 
 	if (sock->server != NULL) {
 		if (sock->server->pquota != NULL) {
+			isc__nm_decstats(sock, STATID_CLIENTS);
 			isc_quota_release(sock->server->pquota);
 		}
 		isc__nmsocket_detach(&sock->server);

@@ -124,6 +124,8 @@ static struct parse_map map[] = {
 	{ TAG_XMSSMT_PRIVATEKEY, "PrivateKey:" },
 	{ TAG_XMSSMT_PUBLICKEY, "PublicKey:" },
 
+	{ TAG_MERKLE_TREE, "MerkleTree:" },
+
 	{ 0, NULL }
 };
 
@@ -441,6 +443,36 @@ check_xmssmt(const dst_private_t *priv, const unsigned int alg, bool external) {
 }
 
 static int
+check_merkletree(const dst_private_t *priv, const unsigned int alg, bool external) {
+	int i, j;
+	bool have[MERKLE_TREE_NTAGS];
+	bool ok;
+	unsigned int mask;
+	if (external) {
+		return ((priv->nelements == 0) ? 0 : -1);
+	}
+	for (i = 0; i < MERKLE_TREE_NTAGS; i++) {
+		have[i] = false;
+	}
+	for (j = 0; j < priv->nelements; j++) {
+		for (i = 0; i < MERKLE_TREE_NTAGS; i++) {
+			if (priv->elements[j].tag == TAG(alg, i)) {
+				break;
+			}
+		}
+		if (i == MERKLE_TREE_NTAGS) {
+			return (-1);
+		}
+		have[i] = true;
+	}
+
+	mask = (1ULL << TAG_SHIFT) - 1;
+
+	ok = have[TAG_MERKLE_TREE & mask];
+	return (ok ? 0 : -1);
+}
+
+static int
 check_data(const dst_private_t *priv, const unsigned int alg, bool old,
 	   bool external) {
 	switch (alg) {
@@ -476,6 +508,8 @@ check_data(const dst_private_t *priv, const unsigned int alg, bool old,
 		return (check_xmss(priv, alg, external));
 	case DST_ALG_XMSSMT:
 		return (check_xmssmt(priv, alg, external));
+	case DST_ALG_MERKLE_TREE:
+		return (check_merkletree(priv, alg, external));
 	default:
 		return (DST_R_UNSUPPORTEDALG);
 	}
@@ -831,6 +865,9 @@ dst__privstruct_writefile(const dst_key_t *key, const dst_private_t *priv,
 		break;
 	case DST_ALG_XMSSMT:
 		fprintf(fp, "(XMSSMT)\n");
+		break;
+	case DST_ALG_MERKLE_TREE:
+		fprintf(fp, "(MERKLE_TREE)\n");
 		break;
 	default:
 		fprintf(fp, "(?)\n");

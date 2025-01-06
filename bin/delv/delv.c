@@ -247,7 +247,7 @@ usage(void) {
 		"process)\n"
 		"                 +[no]yaml           (Present the results as "
 		"YAML)\n");
-	exit(1);
+	exit(EXIT_FAILURE);
 }
 
 noreturn static void
@@ -263,8 +263,7 @@ fatal(const char *format, ...) {
 	vfprintf(stderr, format, args);
 	va_end(args);
 	fprintf(stderr, "\n");
-	isc__tls_setfatalmode();
-	exit(1);
+	_exit(EXIT_FAILURE);
 }
 
 static void
@@ -1165,7 +1164,7 @@ plus_option(char *option) {
 			if (state) {
 				fprintf(stderr, "Invalid option: "
 						"+dlv is obsolete\n");
-				exit(1);
+				exit(EXIT_FAILURE);
 			}
 			break;
 		case 'n': /* dnssec */
@@ -1380,10 +1379,6 @@ plus_option(char *option) {
 		fprintf(stderr, "Invalid option: +%s\n", option);
 		usage();
 	}
-
-	if (qmin && !fulltrace) {
-		fatal("'+qmin' cannot be used without '+ns'");
-	}
 	return;
 }
 
@@ -1436,7 +1431,7 @@ dash_option(char *option, char *next, bool *open_type_class) {
 			break;
 		case 'h':
 			usage();
-			exit(0);
+			exit(EXIT_SUCCESS);
 		case 'i':
 			no_sigs = true;
 			root_validation = false;
@@ -1446,7 +1441,7 @@ dash_option(char *option, char *next, bool *open_type_class) {
 			break;
 		case 'v':
 			printf("delv %s\n", PACKAGE_VERSION);
-			exit(0);
+			exit(EXIT_SUCCESS);
 		default:
 			UNREACHABLE();
 		}
@@ -1583,7 +1578,7 @@ dash_option(char *option, char *next, bool *open_type_class) {
 			typeset = true;
 		} else {
 			fprintf(stderr, "Invalid IP address %s\n", value);
-			exit(1);
+			exit(EXIT_FAILURE);
 		}
 		return (value_from_next);
 	invalid_option:
@@ -1730,6 +1725,11 @@ parse_args(int argc, char **argv) {
 				curqname = isc_mem_strdup(mctx, argv[0]);
 			}
 		}
+	}
+
+	/* check consistency */
+	if (qmin && !fulltrace) {
+		fatal("'+qmin' cannot be used without '+ns'");
 	}
 
 	/*
@@ -1961,7 +1961,8 @@ recvresponse(void *arg) {
 		fatal("request event result: %s", isc_result_totext(result));
 	}
 
-	dns_message_create(mctx, DNS_MESSAGE_INTENTPARSE, &response);
+	dns_message_create(mctx, NULL, NULL, DNS_MESSAGE_INTENTPARSE,
+			   &response);
 
 	result = dns_request_getresponse(request, response,
 					 DNS_MESSAGEPARSE_PRESERVEORDER);
@@ -2076,7 +2077,8 @@ sendquery(void *arg) {
 	/* Construct query message */
 	CHECK(convert_name(&qfn, &query_name, qname));
 
-	dns_message_create(mctx, DNS_MESSAGE_INTENTRENDER, &message);
+	dns_message_create(mctx, NULL, NULL, DNS_MESSAGE_INTENTRENDER,
+			   &message);
 	message->opcode = dns_opcode_query;
 	message->flags = DNS_MESSAGEFLAG_RD | DNS_MESSAGEFLAG_AD;
 	if (cdflag) {
@@ -2103,9 +2105,8 @@ sendquery(void *arg) {
 
 	dns_view_attach(view, &(dns_view_t *){ NULL });
 	CHECK(dns_request_create(requestmgr, message, NULL, &peer, NULL, NULL,
-				 DNS_REQUESTOPT_TCP, NULL, 1, 0, 0,
-				 isc_loop_current(loopmgr), recvresponse,
-				 message, &request));
+				 DNS_REQUESTOPT_TCP, NULL, 1, 0, 0, isc_loop(),
+				 recvresponse, message, &request));
 	return;
 
 cleanup:
@@ -2144,7 +2145,7 @@ run_server(void *arg) {
 
 	ns_server_create(mctx, matchview, &sctx);
 
-	CHECK(dns_dispatchmgr_create(mctx, netmgr, &dispatchmgr));
+	CHECK(dns_dispatchmgr_create(mctx, loopmgr, netmgr, &dispatchmgr));
 	isc_sockaddr_any(&any);
 	CHECK(dns_dispatch_createudp(dispatchmgr, &any, &dispatch));
 	CHECK(ns_interfacemgr_create(mctx, sctx, loopmgr, netmgr, dispatchmgr,
@@ -2152,7 +2153,7 @@ run_server(void *arg) {
 
 	CHECK(dns_view_create(mctx, dispatchmgr, dns_rdataclass_in, "_default",
 			      &view));
-	CHECK(dns_cache_create(loopmgr, dns_rdataclass_in, "", &cache));
+	CHECK(dns_cache_create(loopmgr, dns_rdataclass_in, "", mctx, &cache));
 	dns_view_setcache(view, cache, false);
 	dns_cache_detach(&cache);
 	dns_view_setdstport(view, destport);
@@ -2167,8 +2168,8 @@ run_server(void *arg) {
 	dns_view_initsecroots(view);
 	CHECK(setup_dnsseckeys(NULL, view));
 
-	CHECK(dns_view_createresolver(view, loopmgr, 1, netmgr, 0,
-				      tlsctx_client_cache, dispatch, NULL));
+	CHECK(dns_view_createresolver(view, netmgr, 0, tlsctx_client_cache,
+				      dispatch, NULL));
 
 	isc_stats_create(mctx, &resstats, dns_resstatscounter_max);
 	dns_resolver_setstats(view->resolver, resstats);
@@ -2184,9 +2185,10 @@ run_server(void *arg) {
 
 	CHECK(isc_nm_listenstreamdns(netmgr, ISC_NM_LISTEN_ONE, &addr,
 				     ns_client_request, ifp, accept_cb, ifp, 10,
-				     NULL, NULL, &ifp->tcplistensocket));
+				     NULL, NULL, ISC_NM_PROXY_NONE,
+				     &ifp->tcplistensocket));
 	ifp->flags |= NS_INTERFACEFLAG_LISTENING;
-	isc_async_current(loopmgr, sendquery, ifp->tcplistensocket);
+	isc_async_current(sendquery, ifp->tcplistensocket);
 
 	return;
 

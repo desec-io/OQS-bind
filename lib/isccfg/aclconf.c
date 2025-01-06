@@ -685,10 +685,7 @@ cfg_acl_fromconfig(const cfg_obj_t *acl_data, const cfg_obj_t *cctx,
 			nelem = cfg_list_length(caml, false);
 		}
 
-		result = dns_acl_create(mctx, nelem, &dacl);
-		if (result != ISC_R_SUCCESS) {
-			return (result);
-		}
+		dns_acl_create(mctx, nelem, &dacl);
 	}
 
 	if (is_tuple) {
@@ -704,7 +701,8 @@ cfg_acl_fromconfig(const cfg_obj_t *acl_data, const cfg_obj_t *cctx,
 			if (strcasecmp(cfg_obj_asstring(obj_transport),
 				       "udp") == 0)
 			{
-				transports = isc_nm_udpsocket;
+				transports = isc_nm_udpsocket |
+					     isc_nm_proxyudpsocket;
 				encrypted = false;
 			} else if (strcasecmp(cfg_obj_asstring(obj_transport),
 					      "tcp") == 0)
@@ -716,7 +714,8 @@ cfg_acl_fromconfig(const cfg_obj_t *acl_data, const cfg_obj_t *cctx,
 			{
 				/* Good ol' DNS over port 53 */
 				transports = isc_nm_streamdnssocket |
-					     isc_nm_udpsocket;
+					     isc_nm_udpsocket |
+					     isc_nm_proxyudpsocket;
 				encrypted = false;
 			} else if (strcasecmp(cfg_obj_asstring(obj_transport),
 					      "tls") == 0)
@@ -771,12 +770,8 @@ cfg_acl_fromconfig(const cfg_obj_t *acl_data, const cfg_obj_t *cctx,
 		iptab = dacl->iptable;
 
 		if (nest_level != 0) {
-			result = dns_acl_create(mctx,
-						cfg_list_length(ce, false),
-						&de->nestedacl);
-			if (result != ISC_R_SUCCESS) {
-				goto cleanup;
-			}
+			dns_acl_create(mctx, cfg_list_length(ce, false),
+				       &de->nestedacl);
 			iptab = de->nestedacl->iptable;
 		}
 

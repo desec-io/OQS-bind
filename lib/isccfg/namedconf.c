@@ -105,6 +105,7 @@ static cfg_type_t cfg_type_http_description;
 static cfg_type_t cfg_type_ixfrdifftype;
 static cfg_type_t cfg_type_ixfrratio;
 static cfg_type_t cfg_type_key;
+static cfg_type_t cfg_type_keystore;
 static cfg_type_t cfg_type_logfile;
 static cfg_type_t cfg_type_logging;
 static cfg_type_t cfg_type_logseverity;
@@ -150,6 +151,11 @@ static cfg_type_t cfg_type_zone;
 
 static cfg_tuplefielddef_t listenon_tuple_fields[] = {
 	{ "port", &cfg_type_optional_port, 0 },
+	/*
+	 * Let's follow the protocols encapsulation order (lower->upper), at
+	 * least roughly.
+	 */
+	{ "proxy", &cfg_type_astring, CFG_CLAUSEFLAG_EXPERIMENTAL },
 	{ "tls", &cfg_type_astring, 0 },
 #if HAVE_LIBNGHTTP2
 	{ "http", &cfg_type_astring, 0 },
@@ -472,7 +478,6 @@ static cfg_tuplefielddef_t dnssecpolicy_fields[] = {
 	{ "options", &cfg_type_dnssecpolicyopts, 0 },
 	{ NULL, NULL, 0 }
 };
-
 static cfg_type_t cfg_type_dnssecpolicy = {
 	"dnssec-policy", cfg_parse_tuple, cfg_print_tuple,
 	cfg_doc_tuple,	 &cfg_rep_tuple,  dnssecpolicy_fields
@@ -577,10 +582,58 @@ static cfg_type_t cfg_type_dnsseckeyrole = {
 /*%
  * DNSSEC key storage types.
  */
-static const char *dnsseckeystore_enums[] = { "key-directory", NULL };
-static cfg_type_t cfg_type_dnsseckeystore = {
-	"dnssec-key-storage", parse_optional_enum, cfg_print_ustring,
-	doc_optional_enum,    &cfg_rep_string,	   dnsseckeystore_enums
+static keyword_type_t keystore_kw = { "key-store", &cfg_type_astring };
+static cfg_type_t cfg_type_keystorage = { "keystorage",	   parse_keyvalue,
+					  print_keyvalue,  doc_keyvalue,
+					  &cfg_rep_string, &keystore_kw };
+
+static isc_result_t
+parse_keystore(cfg_parser_t *pctx, const cfg_type_t *type, cfg_obj_t **ret) {
+	isc_result_t result;
+	cfg_obj_t *obj = NULL;
+
+	UNUSED(type);
+
+	CHECK(cfg_peektoken(pctx, 0));
+	if (pctx->token.type == isc_tokentype_string &&
+	    strcasecmp(TOKEN_STRING(pctx), "key-directory") == 0)
+	{
+		CHECK(cfg_parse_obj(pctx, &cfg_type_ustring, &obj));
+	} else if (pctx->token.type == isc_tokentype_string &&
+		   strcasecmp(TOKEN_STRING(pctx), "key-store") == 0)
+	{
+		CHECK(cfg_parse_obj(pctx, &cfg_type_keystorage, &obj));
+	} else {
+		CHECK(cfg_parse_void(pctx, NULL, &obj));
+	}
+
+	*ret = obj;
+cleanup:
+	return (result);
+}
+
+static void
+doc_keystore(cfg_printer_t *pctx, const cfg_type_t *type) {
+	UNUSED(type);
+
+	cfg_print_cstr(pctx, "[ key-directory | key-store <string> ]");
+}
+
+static void
+print_keystore(cfg_printer_t *pctx, const cfg_obj_t *obj) {
+	REQUIRE(pctx != NULL);
+	REQUIRE(obj != NULL);
+	REQUIRE(obj->type->rep == &cfg_rep_string);
+
+	if (strcasecmp(cfg_obj_asstring(obj), "key-directory") != 0) {
+		cfg_print_cstr(pctx, "key-store ");
+	}
+	cfg_print_ustring(pctx, obj);
+}
+
+static cfg_type_t cfg_type_optional_keystore = {
+	"optionalkeystorage", parse_keystore,  print_keystore,
+	doc_keystore,	      &cfg_rep_string, &keystore_kw
 };
 
 /*%
@@ -599,7 +652,7 @@ static cfg_type_t cfg_type_lifetime = { "lifetime",	   parse_keyvalue,
 
 static cfg_tuplefielddef_t kaspkey_fields[] = {
 	{ "role", &cfg_type_dnsseckeyrole, 0 },
-	{ "keystore-type", &cfg_type_dnsseckeystore, 0 },
+	{ "keystorage", &cfg_type_optional_keystore, 0 },
 	{ "lifetime", &cfg_type_lifetime, 0 },
 	{ "algorithm", &cfg_type_algorithm, 0 },
 	{ "length", &cfg_type_optional_uint32, 0 },
@@ -1082,7 +1135,7 @@ static cfg_type_t cfg_type_bracketed_portlist = { "bracketed_portlist",
 						  &cfg_rep_list,
 						  &cfg_type_portrange };
 
-static const char *cookiealg_enums[] = { "aes", "siphash24", NULL };
+static const char *cookiealg_enums[] = { "siphash24", NULL };
 static cfg_type_t cfg_type_cookiealg = { "cookiealg",	    cfg_parse_enum,
 					 cfg_print_ustring, cfg_doc_enum,
 					 &cfg_rep_string,   &cookiealg_enums };
@@ -1138,6 +1191,7 @@ static cfg_clausedef_t namedconf_clauses[] = {
 	{ "http", &cfg_type_http_description,
 	  CFG_CLAUSEFLAG_MULTI | CFG_CLAUSEFLAG_NOTCONFIGURED },
 #endif
+	{ "key-store", &cfg_type_keystore, CFG_CLAUSEFLAG_MULTI },
 	{ "logging", &cfg_type_logging, 0 },
 	{ "lwres", NULL, CFG_CLAUSEFLAG_MULTI | CFG_CLAUSEFLAG_ANCIENT },
 	{ "masters", &cfg_type_remoteservers,
@@ -1269,7 +1323,7 @@ static cfg_clausedef_t options_clauses[] = {
 	  CFG_CLAUSEFLAG_OBSOLETE },
 	{ "listen-on", &cfg_type_listenon, CFG_CLAUSEFLAG_MULTI },
 	{ "listen-on-v6", &cfg_type_listenon, CFG_CLAUSEFLAG_MULTI },
-	{ "lock-file", &cfg_type_qstringornone, 0 },
+	{ "lock-file", &cfg_type_qstringornone, CFG_CLAUSEFLAG_ANCIENT },
 	{ "managed-keys-directory", &cfg_type_qstring, 0 },
 	{ "match-mapped-addresses", &cfg_type_boolean, 0 },
 	{ "max-rsa-exponent-size", &cfg_type_uint32, 0 },
@@ -2021,6 +2075,9 @@ static cfg_clausedef_t view_clauses[] = {
 	{ "additional-from-auth", NULL, CFG_CLAUSEFLAG_ANCIENT },
 	{ "additional-from-cache", NULL, CFG_CLAUSEFLAG_ANCIENT },
 	{ "allow-new-zones", &cfg_type_boolean, 0 },
+	{ "allow-proxy", &cfg_type_bracketed_aml, CFG_CLAUSEFLAG_EXPERIMENTAL },
+	{ "allow-proxy-on", &cfg_type_bracketed_aml,
+	  CFG_CLAUSEFLAG_EXPERIMENTAL },
 	{ "allow-query-cache", &cfg_type_bracketed_aml, 0 },
 	{ "allow-query-cache-on", &cfg_type_bracketed_aml, 0 },
 	{ "allow-recursion", &cfg_type_bracketed_aml, 0 },
@@ -2095,6 +2152,10 @@ static cfg_clausedef_t view_clauses[] = {
 	{ "max-recursion-queries", &cfg_type_uint32, 0 },
 	{ "max-stale-ttl", &cfg_type_duration, 0 },
 	{ "max-udp-size", &cfg_type_uint32, 0 },
+	{ "max-validations-per-fetch", &cfg_type_uint32,
+	  CFG_CLAUSEFLAG_EXPERIMENTAL },
+	{ "max-validation-failures-per-fetch", &cfg_type_uint32,
+	  CFG_CLAUSEFLAG_EXPERIMENTAL },
 	{ "message-compression", &cfg_type_boolean, 0 },
 	{ "min-cache-ttl", &cfg_type_duration, 0 },
 	{ "min-ncache-ttl", &cfg_type_duration, 0 },
@@ -2125,9 +2186,10 @@ static cfg_clausedef_t view_clauses[] = {
 	{ "request-nsid", &cfg_type_boolean, 0 },
 	{ "request-sit", NULL, CFG_CLAUSEFLAG_ANCIENT },
 	{ "require-server-cookie", &cfg_type_boolean, 0 },
-	{ "resolver-nonbackoff-tries", &cfg_type_uint32, 0 },
+	{ "resolver-nonbackoff-tries", &cfg_type_uint32,
+	  CFG_CLAUSEFLAG_ANCIENT },
 	{ "resolver-query-timeout", &cfg_type_uint32, 0 },
-	{ "resolver-retry-interval", &cfg_type_uint32, 0 },
+	{ "resolver-retry-interval", &cfg_type_uint32, CFG_CLAUSEFLAG_ANCIENT },
 	{ "response-padding", &cfg_type_resppadding, 0 },
 	{ "response-policy", &cfg_type_rpz, 0 },
 	{ "rfc2308-type1", NULL, CFG_CLAUSEFLAG_ANCIENT },
@@ -2137,7 +2199,7 @@ static cfg_clausedef_t view_clauses[] = {
 	{ "rrset-order", &cfg_type_rrsetorder, 0 },
 	{ "send-cookie", &cfg_type_boolean, 0 },
 	{ "servfail-ttl", &cfg_type_duration, 0 },
-	{ "sortlist", &cfg_type_bracketed_aml, 0 },
+	{ "sortlist", &cfg_type_bracketed_aml, CFG_CLAUSEFLAG_DEPRECATED },
 	{ "stale-answer-enable", &cfg_type_boolean, 0 },
 	{ "stale-answer-client-timeout", &cfg_type_staleanswerclienttimeout,
 	  0 },
@@ -2149,8 +2211,8 @@ static cfg_clausedef_t view_clauses[] = {
 	{ "synth-from-dnssec", &cfg_type_boolean, 0 },
 	{ "topology", NULL, CFG_CLAUSEFLAG_ANCIENT },
 	{ "transfer-format", &cfg_type_transferformat, 0 },
-	{ "trust-anchor-telemetry", &cfg_type_boolean,
-	  CFG_CLAUSEFLAG_EXPERIMENTAL },
+	{ "trust-anchor-telemetry", &cfg_type_boolean, 0 },
+	{ "resolver-use-dns64", &cfg_type_boolean, 0 },
 	{ "use-queryport-pool", NULL, CFG_CLAUSEFLAG_ANCIENT },
 	{ "validate-except", &cfg_type_namelist, 0 },
 	{ "v6-bias", &cfg_type_uint32, 0 },
@@ -2219,6 +2281,7 @@ static cfg_clausedef_t dnssecpolicy_clauses[] = {
 	{ "publish-safety", &cfg_type_duration, 0 },
 	{ "purge-keys", &cfg_type_duration, 0 },
 	{ "retire-safety", &cfg_type_duration, 0 },
+	{ "signatures-jitter", &cfg_type_duration, 0 },
 	{ "signatures-refresh", &cfg_type_duration, 0 },
 	{ "signatures-validity", &cfg_type_duration, 0 },
 	{ "signatures-validity-dnskey", &cfg_type_duration, 0 },
@@ -2539,6 +2602,30 @@ static cfg_clausedef_t *key_clausesets[] = { key_clauses, NULL };
 static cfg_type_t cfg_type_key = { "key",	  cfg_parse_named_map,
 				   cfg_print_map, cfg_doc_map,
 				   &cfg_rep_map,  key_clausesets };
+
+/*%
+ * A key-store statement.
+ */
+static cfg_clausedef_t keystore_clauses[] = {
+	{ "directory", &cfg_type_astring, 0 },
+	{ "pkcs11-uri", &cfg_type_qstring, 0 },
+	{ NULL, NULL, 0 }
+};
+
+static cfg_clausedef_t *keystore_clausesets[] = { keystore_clauses, NULL };
+static cfg_type_t cfg_type_keystoreopts = {
+	"keystoreopts", cfg_parse_map, cfg_print_map,
+	cfg_doc_map,	&cfg_rep_map,  keystore_clausesets
+};
+
+static cfg_tuplefielddef_t keystore_fields[] = {
+	{ "name", &cfg_type_astring, 0 },
+	{ "options", &cfg_type_keystoreopts, 0 },
+	{ NULL, NULL, 0 }
+};
+static cfg_type_t cfg_type_keystore = { "key-store",	 cfg_parse_tuple,
+					cfg_print_tuple, cfg_doc_tuple,
+					&cfg_rep_tuple,	 keystore_fields };
 
 /*%
  * Clauses that can be found in a 'server' statement.
@@ -3962,6 +4049,11 @@ static cfg_clausedef_t tls_clauses[] = {
 	{ "dhparam-file", &cfg_type_qstring, 0 },
 	{ "protocols", &cfg_type_tlsprotos, 0 },
 	{ "ciphers", &cfg_type_astring, 0 },
+#ifdef HAVE_SSL_CTX_SET_CIPHERSUITES
+	{ "cipher-suites", &cfg_type_astring, 0 },
+#else
+	{ "cipher-suites", &cfg_type_astring, CFG_CLAUSEFLAG_NOTCONFIGURED },
+#endif
 	{ "prefer-server-ciphers", &cfg_type_boolean, 0 },
 	{ "session-tickets", &cfg_type_boolean, 0 },
 	{ NULL, NULL, 0 }

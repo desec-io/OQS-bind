@@ -54,8 +54,8 @@ struct dns_requestmgr {
 	atomic_bool shuttingdown;
 
 	dns_dispatchmgr_t *dispatchmgr;
-	dns_dispatch_t *dispatchv4;
-	dns_dispatch_t *dispatchv6;
+	dns_dispatchset_t *dispatches4;
+	dns_dispatchset_t *dispatches6;
 	dns_requestlist_t *requests;
 };
 
@@ -150,10 +150,14 @@ dns_requestmgr_create(isc_mem_t *mctx, isc_loopmgr_t *loopmgr,
 	dns_dispatchmgr_attach(dispatchmgr, &requestmgr->dispatchmgr);
 
 	if (dispatchv4 != NULL) {
-		dns_dispatch_attach(dispatchv4, &requestmgr->dispatchv4);
+		dns_dispatchset_create(requestmgr->mctx, dispatchv4,
+				       &requestmgr->dispatches4,
+				       isc_loopmgr_nloops(requestmgr->loopmgr));
 	}
 	if (dispatchv6 != NULL) {
-		dns_dispatch_attach(dispatchv6, &requestmgr->dispatchv6);
+		dns_dispatchset_create(requestmgr->mctx, dispatchv6,
+				       &requestmgr->dispatches6,
+				       isc_loopmgr_nloops(requestmgr->loopmgr));
 	}
 
 	isc_refcount_init(&requestmgr->references, 1);
@@ -186,14 +190,19 @@ requests_shutdown(void *arg) {
 
 void
 dns_requestmgr_shutdown(dns_requestmgr_t *requestmgr) {
+	bool first;
 	REQUIRE(VALID_REQUESTMGR(requestmgr));
 
 	req_log(ISC_LOG_DEBUG(3), "%s: %p", __func__, requestmgr);
 
 	rcu_read_lock();
-	INSIST(atomic_compare_exchange_strong(&requestmgr->shuttingdown,
-					      &(bool){ false }, true));
+	first = atomic_compare_exchange_strong(&requestmgr->shuttingdown,
+					       &(bool){ false }, true);
 	rcu_read_unlock();
+
+	if (!first) {
+		return;
+	}
 
 	/*
 	 * Wait until all dns_request_create{raw}() are finished, so
@@ -223,8 +232,6 @@ requestmgr_destroy(dns_requestmgr_t *requestmgr) {
 
 	INSIST(atomic_load(&requestmgr->shuttingdown));
 
-	isc_refcount_destroy(&requestmgr->references);
-
 	size_t nloops = isc_loopmgr_nloops(requestmgr->loopmgr);
 	for (size_t i = 0; i < nloops; i++) {
 		INSIST(ISC_LIST_EMPTY(requestmgr->requests[i]));
@@ -232,11 +239,11 @@ requestmgr_destroy(dns_requestmgr_t *requestmgr) {
 	isc_mem_cput(requestmgr->mctx, requestmgr->requests, nloops,
 		     sizeof(requestmgr->requests[0]));
 
-	if (requestmgr->dispatchv4 != NULL) {
-		dns_dispatch_detach(&requestmgr->dispatchv4);
+	if (requestmgr->dispatches4 != NULL) {
+		dns_dispatchset_destroy(&requestmgr->dispatches4);
 	}
-	if (requestmgr->dispatchv6 != NULL) {
-		dns_dispatch_detach(&requestmgr->dispatchv6);
+	if (requestmgr->dispatches6 != NULL) {
+		dns_dispatchset_destroy(&requestmgr->dispatches6);
 	}
 	if (requestmgr->dispatchmgr != NULL) {
 		dns_dispatchmgr_detach(&requestmgr->dispatchmgr);
@@ -348,7 +355,7 @@ tcp_dispatch(bool newtcp, dns_requestmgr_t *requestmgr,
 	}
 
 	result = dns_dispatch_createtcp(requestmgr->dispatchmgr, srcaddr,
-					destaddr, dispatchp);
+					destaddr, 0, dispatchp);
 	return (result);
 }
 
@@ -360,11 +367,11 @@ udp_dispatch(dns_requestmgr_t *requestmgr, const isc_sockaddr_t *srcaddr,
 	if (srcaddr == NULL) {
 		switch (isc_sockaddr_pf(destaddr)) {
 		case PF_INET:
-			disp = requestmgr->dispatchv4;
+			disp = dns_dispatchset_get(requestmgr->dispatches4);
 			break;
 
 		case PF_INET6:
-			disp = requestmgr->dispatchv6;
+			disp = dns_dispatchset_get(requestmgr->dispatches6);
 			break;
 
 		default:
@@ -743,8 +750,8 @@ cleanup:
 	return (result);
 }
 
-void
-dns_request_cancel(dns_request_t *request) {
+static void
+request_cancel(dns_request_t *request) {
 	REQUIRE(VALID_REQUEST(request));
 	REQUIRE(request->tid == isc_tid());
 
@@ -755,6 +762,26 @@ dns_request_cancel(dns_request_t *request) {
 
 	req_log(ISC_LOG_DEBUG(3), "%s: request %p", __func__, request);
 	req_sendevent(request, ISC_R_CANCELED); /* call asynchronously */
+}
+
+static void
+req_cancel_cb(void *arg) {
+	dns_request_t *request = arg;
+
+	request_cancel(request);
+	dns_request_unref(request);
+}
+
+void
+dns_request_cancel(dns_request_t *request) {
+	REQUIRE(VALID_REQUEST(request));
+
+	if (request->tid == isc_tid()) {
+		request_cancel(request);
+	} else {
+		dns_request_ref(request);
+		isc_async_run(request->loop, req_cancel_cb, request);
+	}
 }
 
 isc_result_t
@@ -957,6 +984,11 @@ req_sendevent(dns_request_t *request, isc_result_t result) {
 
 	request->result = result;
 
+	/*
+	 * Do not call request->cb directly as it introduces a dead lock
+	 * between dns_zonemgr_shutdown and sendtoprimary in lib/dns/zone.c
+	 * zone->lock.
+	 */
 	dns_request_ref(request);
 	isc_async_run(request->loop, req_sendevent_cb, request);
 }
@@ -968,8 +1000,6 @@ req_destroy(dns_request_t *request) {
 	REQUIRE(!ISC_LINK_LINKED(request, link));
 
 	req_log(ISC_LOG_DEBUG(3), "%s: request %p", __func__, request);
-
-	isc_refcount_destroy(&request->references);
 
 	/*
 	 * These should have been cleaned up before the
